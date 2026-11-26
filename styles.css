@@ -216,3 +216,99 @@ textarea.paste { width: 100%; font: 13px/1.45 ui-monospace, SFMono-Regular, Menl
 .art-row { display: flex; align-items: center; gap: 10px; }
 .art-row .minicard { width: 51px; height: 33px; }
 .art-name { min-width: 170px; }
+
+/* ---- Spending section: soft pastel cards ---- */
+#overview {
+  --hero-a: #2f2552; --hero-b: #57418f; --hero-ink: #ffffff; --hero-soft: #d9cff5; --hero-line: #a98ef2;
+  --peach: #f2c9b0; --peach-ink: #4a2318; --peach-soft: #7a4535; --peach-bar: #b0513e; --peach-track: #f8e2d6;
+  --mint: #cfe9dc; --mint-ink: #1f4a37; --mint-soft: #4b7462;
+  --blush: #f7dccf; --blush-ink: #6a3322; --blush-soft: #9a6252;
+  --lav: #ddd5f3; --lav-ink: #3c2f6b; --lav-soft: #6f639a;
+  --tip: #f2eefa; --tip-ink: #34295c; --tip-soft: #625a80; --tip-btn: #5b3fc4;
+  --d1: #667f6c; --d2: #d58a5c; --d3: #7d79ac; --d4: #c3a84f; --d5: #e7e3ec;
+}
+@media (prefers-color-scheme: dark) {
+  #overview {
+    --hero-a: #241c40; --hero-b: #47337a; --hero-line: #b49bff;
+    --peach: #4a2c22; --peach-ink: #ffd9c6; --peach-soft: #e2b09c; --peach-bar: #e07a60; --peach-track: #6a4234;
+    --mint: #1e3a2f; --mint-ink: #bfead6; --mint-soft: #8fbfa9;
+    --blush: #43281f; --blush-ink: #ffd2c0; --blush-soft: #d9a593;
+    --lav: #2d2648; --lav-ink: #dcd2ff; --lav-soft: #a99ed4;
+    --tip: #221d33; --tip-ink: #e6dfff; --tip-soft: #aea6cc; --tip-btn: #7b5ff0;
+    --d1: #7fa088; --d2: #e39a6c; --d3: #9b97cf; --d4: #d6bc62; --d5: #4a4556;
+  }
+}
+#overview .sp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 6px; }
+#overview .sp-hero { grid-column: span 2; position: relative; display: flex; gap: 16px; min-height: 280px; padding: 30px 32px; border-radius: 26px; color: var(--hero-ink);
+  background: linear-gradient(120deg, var(--hero-a), var(--hero-b)); overflow: hidden; }
+#overview .sp-hero-text { flex: 0 0 42%; display: flex; flex-direction: column; gap: 14px; z-index: 1; }
+#overview .sp-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .8; }
+#overview .sp-hero-num { font-size: clamp(38px, 5vw, 60px); font-weight: 800; letter-spacing: -.035em; line-height: 1; }
+#overview .sp-hero-msg { margin: 0; font-size: 17px; line-height: 1.45; color: var(--hero-soft); }
+#overview .sp-hero-msg b { color: var(--hero-ink); }
+#overview .sp-pill { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 14px; font-weight: 700; font-size: 14px;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); }
+#overview .trend-ico { font-size: 16px; line-height: 1; }
+#overview .sp-hero-chart { flex: 1; position: relative; min-height: 200px; }
+#overview .hero-grid { stroke: rgba(255,255,255,.1); }
+#overview .hero-line { stroke: var(--hero-line); stroke-width: 3; }
+#overview .hero-dot { fill: var(--hero-a); stroke: var(--hero-line); stroke-width: 3; }
+
+#overview .sp-month { position: relative; overflow: hidden; padding: 30px 30px 24px; border-radius: 26px; background: var(--peach); color: var(--peach-ink); display: flex; flex-direction: column; gap: 10px; }
+#overview .sp-month .sp-eyebrow { opacity: .75; }
+#overview .sp-blob { position: absolute; border-radius: 50%; background: rgba(255,255,255,.22); pointer-events: none; }
+#overview .sp-blob.a { width: 190px; height: 190px; right: -50px; top: -70px; }
+#overview .sp-blob.b { width: 120px; height: 120px; right: 50px; top: 40px; }
+#overview .sp-month-num { font-size: clamp(36px, 4vw, 52px); font-weight: 800; letter-spacing: -.035em; line-height: 1.05; position: relative; }
+#overview .sp-month-msg { margin: 0; font-size: 16px; line-height: 1.45; position: relative; }
+#overview .sp-bar { margin-top: auto; height: 12px; border-radius: 999px; background: var(--peach-track); overflow: hidden; }
+#overview .sp-bar span { display: block; height: 100%; border-radius: inherit; background: var(--peach-bar); }
+#overview .sp-bar-scale { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--peach-soft); }
+#overview .sp-week { font-size: 13px; color: var(--peach-soft); border-top: 1px solid rgba(0,0,0,.08); padding-top: 10px; }
+#overview .sp-week b { color: var(--peach-ink); }
+
+#overview .sp-card { padding: 24px 26px; border-radius: 22px; min-height: 160px; display: flex; flex-direction: column; gap: 6px; }
+#overview .sp-label { font-size: 15px; font-weight: 600; }
+#overview .sp-num { font-size: clamp(30px, 3.4vw, 40px); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; }
+#overview .sp-note { margin-top: auto; font-size: 13px; }
+#overview .sp-card.mint { background: var(--mint); color: var(--mint-ink); } #overview .mint .sp-label, #overview .mint .sp-note { color: var(--mint-soft); }
+#overview .sp-card.peach { background: var(--blush); color: var(--blush-ink); } #overview .peach .sp-label, #overview .peach .sp-note { color: var(--blush-soft); }
+#overview .sp-card.lav { background: var(--lav); color: var(--lav-ink); } #overview .lav .sp-label, #overview .lav .sp-note { color: var(--lav-soft); }
+
+#overview .sp-where { grid-column: span 2; padding: 26px 28px; border-radius: 26px; border: 1px solid var(--line); background: var(--panel); }
+#overview .sp-where-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+#overview .sp-where h3, #overview .sp-tip h3 { margin: 0; font-size: 21px; font-weight: 750; letter-spacing: -.01em; }
+#overview .sp-sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+#overview .sp-link { appearance: none; border: 0; background: none; font: inherit; font-weight: 700; color: var(--tip-btn); cursor: pointer; padding: 4px 0; }
+#overview .sp-link:hover { text-decoration: underline; }
+#overview .sp-where-body { display: flex; align-items: center; gap: 40px; margin-top: 14px; flex-wrap: wrap; }
+#overview .sp-donut { flex: none; position: relative; }
+#overview .donut-big { font-size: 22px; font-weight: 800; fill: var(--ink); letter-spacing: -.02em; }
+#overview .donut-sub { font-size: 12px; fill: var(--muted); }
+#overview .sp-cats { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
+#overview .sp-cat { appearance: none; width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 0; border-radius: 10px; background: none; font: inherit; font-size: 15px; color: var(--ink); cursor: pointer; text-align: left; }
+#overview .sp-cat:hover:not(:disabled), #overview .sp-cat.on { background: var(--soft); }
+#overview .sp-cat:disabled { cursor: default; }
+#overview .sp-cat .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+#overview .sp-cat .nm { flex: 1; }
+#overview .sp-cat .pc { font-weight: 700; }
+
+#overview .sp-tip { padding: 26px 28px; border-radius: 26px; background: var(--tip); color: var(--tip-ink); display: flex; flex-direction: column; gap: 12px; border: 1px solid color-mix(in srgb, var(--tip-btn) 12%, transparent); }
+#overview .sp-tip-ico { width: 46px; height: 46px; border-radius: 14px; background: var(--panel); display: grid; place-items: center; font-size: 22px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+#overview .sp-tip p { margin: 0; color: var(--tip-soft); font-size: 15.5px; line-height: 1.5; }
+#overview .sp-tip p b { color: var(--tip-ink); }
+#overview .sp-btn { margin-top: auto; align-self: flex-start; appearance: none; border: 0; border-radius: 12px; padding: 11px 18px; background: var(--tip-btn); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+#overview .sp-btn:hover { filter: brightness(1.08); }
+
+@media (max-width: 960px) {
+  #overview .sp-grid { grid-template-columns: 1fr 1fr; }
+  #overview .sp-hero, #overview .sp-where { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  #overview .sp-grid { grid-template-columns: 1fr; }
+  #overview .sp-hero { flex-direction: column; padding: 24px; }
+  #overview .sp-hero-text { flex: none; }
+  #overview .sp-hero-chart { min-height: 160px; }
+  #overview .sp-where-body { gap: 20px; }
+}
+@media (prefers-color-scheme: dark) { #overview .sp-blob { background: rgba(255,255,255,.07); } #overview .sp-week { border-top-color: rgba(255,255,255,.1); } }

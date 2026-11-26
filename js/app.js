@@ -1,11 +1,12 @@
-import * as vault from './vault.js?v=202611261125';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261125';
-import {readLayout, applyLayout, categorize, signature, merchantKey, DEFAULT_MODEL} from './ai.js?v=202611261125';
-import * as A from './analysis.js?v=202611261125';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261125';
-import {DEFAULT_FX} from './rules.js?v=202611261125';
+import * as vault from './vault.js?v=202611261127';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261127';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261127';
+import * as A from './analysis.js?v=202611261127';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261127';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261127';
 
 const XLSX = window.XLSX;
+const CATS = Object.values(GROUPS).flat();
 const IDLE_MINUTES = 15;
 const USERNAME = 'oleh';
 const app = document.getElementById('app');
@@ -149,10 +150,28 @@ async function readWithAI(it, draw) {
   } catch (e) { it.aiError = e.message; }
   it.busy = false; draw();
 }
+// Text pasted from a bank or card website: Claude lists the transactions, which are then added like a short extras list.
+async function readPasteWithAI(it, draw) {
+  it.busy = true; it.aiError = ''; draw();
+  try {
+    const st = data.settings, res = await extractFromText(st, it.raw);
+    const items = (res.items || []).filter((t) => !t.isPayment && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && Number.isFinite(+t.amount) && +t.amount !== 0);
+    if (!items.length) throw new Error('Claude didn’t find any card transactions in that text.');
+    const raw = items.map((t) => ({date: t.date, desc: String(t.raw || t.merchant), charge: Math.round(+t.amount * 100) / 100}));
+    const fresh = {};
+    for (const t of items) fresh[merchantKey(String(t.raw || t.merchant))] = {name: String(t.merchant || t.raw).slice(0, 60), category: CATS.includes(t.category) ? t.category : 'Uncategorized'};
+    const names = cardAccounts(data.cards), an = String(res.accountName || '').toLowerCase();
+    const guess = an && names.find((a) => a.toLowerCase().includes(an) || an.includes(a.toLowerCase()));
+    it.ai = {L: {summary: res.summary || 'Pasted transactions.'}, raw, fresh, paste: true, mode: 'append', account: it.ai?.account || guess || (an ? res.accountName : names[0] || 'Other card'),
+      currency: res.currency === 'CAD' ? 'CAD' : res.currency === 'OTHER' ? 'USD' : res.currency, fx: st.fx};
+    buildAI(it);
+  } catch (e) { it.aiError = e.message; }
+  it.busy = false; draw();
+}
 function buildAI(it) {
   const a = it.ai;
   it.batch = aiCardBatch(a.raw, {account: a.account.trim() || 'Other card', currency: a.currency, fx: a.fx, keyOf: merchantKey,
-    merchants: {...data.settings.merchants, ...a.fresh}, fileLabel: (a.account.trim() || 'Other card') + ' (read with AI)'});
+    merchants: {...data.settings.merchants, ...a.fresh}, mode: a.mode || 'replace', fileLabel: (a.account.trim() || 'Other card') + (a.paste ? ' (pasted)' : ' (read with AI)')});
 }
 
 function uploadDialog(initial) {
@@ -174,7 +193,7 @@ function uploadDialog(initial) {
       h('div', {class: 'upl-fields'},
         h('label', {class: 'field'}, h('span', {}, 'Card'), h('input', {list: 'acct-list', value: a.account, onChange: (ev) => { a.account = ev.target.value; buildAI(it); draw(); }})),
         a.currency !== 'CAD' && h('label', {class: 'field'}, h('span', {}, a.currency + ' to CAD rate'), h('input', {type: 'number', step: '0.0001', min: '0', value: a.fx, onChange: (ev) => { const v = Number(ev.target.value); if (v > 0) { a.fx = v; buildAI(it); draw(); } }}))),
-      h('p', {class: 'note'}, 'Using an existing card name replaces that card’s transactions for these dates. A new name adds a new card.'),
+      h('p', {class: 'note'}, a.paste ? 'Pick the card these belong to. Transactions already on the dashboard are skipped, so pasting the same list twice is safe.' : 'Using an existing card name replaces that card’s transactions for these dates. A new name adds a new card.'),
       table([{t: 'Date', f: (r) => dateCell(r.date)}, {t: 'Merchant', f: (r) => r.merchant}, {t: 'Category', f: (r) => r.category}, {t: 'Amount', num: true, f: (r) => fmt.usd2(r.spend)}],
         b.rows.slice(0, 6)));
   };
@@ -185,6 +204,8 @@ function uploadDialog(initial) {
       if (it.busy) body = h('div', {class: 'upl-meta'}, 'Reading with Claude…');
       else if (it.ai && ready(it)) body = aiView(it);
       else if (it.aiError && !b.error) body = h('div', {}, h('div', {class: 'err'}, it.aiError), meta(b));
+      else if (it.paste && b.error) body = h('div', {}, h('div', {class: 'err'}, it.aiError || 'Not a known export layout.'),
+        h('button', {class: 'btn small primary', onClick: () => readPasteWithAI(it, draw)}, 'Try again with AI'));
       else if (b.error) body = h('div', {}, h('div', {class: 'err'}, it.aiError || b.error),
         it.sheets && h('button', {class: 'btn small primary', onClick: () => readWithAI(it, draw)}, it.aiError ? 'Try again with AI' : 'Read with AI'),
         it.sheets && !data.settings.aiKey && h('span', {class: 'note'}, ' Needs your Anthropic API key in Menu → Settings.'));
@@ -194,7 +215,7 @@ function uploadDialog(initial) {
           h('option', {value: 'aeroplan', selected: it.card === 'aeroplan'}, 'Amex Aeroplan Reserve (CAD)'),
           h('option', {value: 'delta', selected: it.card === 'delta'}, 'Delta SkyMiles (USD)'))));
       return h('div', {class: 'upl-item' + (b.error && !it.busy ? ' is-err' : '')},
-        h('div', {class: 'upl-name'}, it.file.name), h('button', {class: 'linkbtn', onClick: () => { items.splice(i, 1); draw(); }}, 'Remove'), body);
+        h('div', {class: 'upl-name'}, it.paste ? 'Pasted text · ' + it.raw.split('\n').filter((l) => l.trim()).length + ' lines' : it.file.name), h('button', {class: 'linkbtn', onClick: () => { items.splice(i, 1); draw(); }}, 'Remove'), body);
     }));
     confirm.disabled = !items.some(ready) || items.some((it) => it.busy);
   };
@@ -213,6 +234,19 @@ function uploadDialog(initial) {
     }
     draw();
   };
+  const pasteBox = h('textarea', {class: 'paste', rows: 6, placeholder: 'Or paste transactions here: select them on your bank or card website (or rows in a spreadsheet), copy, and paste.', 'aria-label': 'Pasted transactions'});
+  const pasteBtn = h('button', {class: 'btn primary', onClick: () => {
+    const text = pasteBox.value.trim(); if (!text) { pasteBox.focus(); return; }
+    const it = {paste: true, raw: text, file: {name: 'pasted.csv'}};
+    const tabular = text.split('\n').slice(0, 5).every((l) => l.includes('\t') || l.split(',').length >= 3);
+    it.batch = tabular ? parseFile(XLSX, 'pasted.csv', text.replace(/\t/g, ','), {fx: data.settings.fx}) : {error: 'paste'};
+    if (!it.batch.error) it.batch.mode = 'append';
+    items.push(it); pasteBox.value = ''; draw();
+    if (it.batch.error) {
+      if (!data.settings.aiKey) { it.aiError = 'Reading pasted text needs your Anthropic API key in Menu → Settings.'; draw(); }
+      else readPasteWithAI(it, draw);
+    }
+  }}, 'Read pasted text');
   input.addEventListener('change', () => { add([...input.files]); input.value = ''; });
   drop.addEventListener('dragover', (ev) => { ev.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
@@ -224,7 +258,7 @@ function uploadDialog(initial) {
       if (!ready(it)) continue;
       data = merge(data, it.batch);
       if (it.ai) {
-        data.settings.formats[it.ai.sig] = {layout: it.ai.L, account: it.ai.account.trim() || 'Other card'};
+        if (it.ai.sig) data.settings.formats[it.ai.sig] = {layout: it.ai.L, account: it.ai.account.trim() || 'Other card'};
         data.settings.merchants = {...data.settings.merchants, ...it.ai.fresh};
       }
       data.uploads.unshift({name: it.file.name, label: it.batch.label, rows: it.batch.rows.length, from: it.batch.from, to: it.batch.to, at: new Date().toISOString()});
@@ -235,9 +269,9 @@ function uploadDialog(initial) {
     d.close(); renderAll();
   });
   const d = h('dialog', {class: 'dlg wide'},
-    h('h2', {}, 'Upload files'),
+    h('h2', {}, 'Add transactions'),
     h('p', {class: 'muted'}, 'Files are read here in your browser. Only for “Read with AI” are the first rows of the file and the merchant names sent to Claude.'),
-    input, drop, list,
+    input, drop, h('div', {class: 'paste-row'}, pasteBox, pasteBtn), list,
     h('div', {class: 'dlg-actions'}, h('button', {class: 'btn', onClick: () => d.close()}, 'Cancel'), confirm));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
   if (initial) add(initial);
@@ -306,7 +340,7 @@ function renderShell() {
       h('div', {class: 'brand'}, h('strong', {}, 'Finance dashboard'), h('span', {class: 'muted', id: 'range'})),
       h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id}, t); })),
       h('div', {class: 'actions'},
-        h('button', {class: 'btn primary', onClick: () => uploadDialog()}, 'Upload files'), menu,
+        h('button', {class: 'btn primary', onClick: () => uploadDialog()}, 'Add transactions'), menu,
         h('button', {class: 'btn', onClick: () => lock()}, 'Lock'))),
     h('main', {class: 'wrap', id: 'main'}));
   document.addEventListener('dragover', (ev) => { if (session && ev.dataTransfer?.types?.includes('Files')) ev.preventDefault(); });

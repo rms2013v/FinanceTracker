@@ -1,8 +1,8 @@
 // Reads files the dashboard doesn't know, with Claude.
 // Claude only sees the first rows of a file (to work out its columns) and the merchant names (to sort them into categories).
 // Every row is then read here in the browser with the layout Claude described.
-import {isoDate, num} from './parse.js?v=202611261125';
-import {GROUPS, GROUP_OF} from './rules.js?v=202611261125';
+import {isoDate, num} from './parse.js?v=202611261127';
+import {GROUPS, GROUP_OF} from './rules.js?v=202611261127';
 
 const API = 'https://api.anthropic.com/v1/messages';
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
@@ -128,3 +128,34 @@ export async function categorize(settings, list) {
 }
 
 export {GROUP_OF};
+
+const EXTRACT_TOOL = {
+  name: 'transactions',
+  description: 'List the card transactions found in the pasted text.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      accountName: {type: 'string', description: 'Card name if the text shows it (e.g. "Wealthsimple", "Amex Aeroplan"), otherwise empty.'},
+      currency: {type: 'string', enum: ['CAD', 'USD', 'EUR', 'GBP', 'OTHER']},
+      summary: {type: 'string', description: 'One plain sentence about what was pasted.'},
+      items: {type: 'array', items: {type: 'object', properties: {
+        date: {type: 'string', description: 'YYYY-MM-DD. If the year is missing, use the most recent date on or before today.'},
+        raw: {type: 'string', description: 'The description exactly as written.'},
+        merchant: {type: 'string', description: 'Short readable merchant name.'},
+        amount: {type: 'number', description: 'Positive for a purchase or charge, negative for a refund or credit.'},
+        category: {type: 'string', enum: [...CATEGORIES, 'Uncategorized']},
+        isPayment: {type: 'boolean', description: 'True for a payment toward the card balance, which is not spending.'},
+      }, required: ['date', 'raw', 'merchant', 'amount', 'category', 'isPayment']}},
+    },
+    required: ['currency', 'summary', 'items'],
+  },
+};
+
+// Pulls transactions out of text copied from a bank or card website.
+export async function extractFromText(settings, text) {
+  const today = new Date().toLocaleDateString('en-CA');
+  const res = await ask(settings,
+    `You read credit card transactions that a person in Canada copied from their bank's website or app. Today is ${today}. Include pending transactions. Leave out headings, balances and totals.`,
+    text.slice(0, 40000), EXTRACT_TOOL);
+  return res;
+}

@@ -1,5 +1,5 @@
 // Reads bank and card exports in the browser and turns them into rows for the dashboard.
-import {GROUP_OF, AMEX_RULES, DELTA_RULES, WS_BUSINESS, HOUSING, DEFAULT_FX} from './rules.js?v=202611261125';
+import {GROUP_OF, AMEX_RULES, DELTA_RULES, WS_BUSINESS, HOUSING, DEFAULT_FX} from './rules.js?v=202611261127';
 
 export const ACCOUNTS = {
   ws: 'Wealthsimple',
@@ -14,7 +14,7 @@ export function cardAccounts(cards) {
 }
 
 // Turns rows read with AI into card rows. merchants maps a merchant key to {name, category}.
-export function aiCardBatch(raw, {account, currency, fx, keyOf, merchants, fileLabel}) {
+export function aiCardBatch(raw, {account, currency, fx, keyOf, merchants, fileLabel, mode = 'replace'}) {
   const rate = currency === 'CAD' ? 1 : (+fx || DEFAULT_FX);
   const rows = raw.map((r) => {
     const m = merchants[keyOf(r.desc)] || {name: title(r.desc).slice(0, 60), category: 'Uncategorized'};
@@ -23,7 +23,7 @@ export function aiCardBatch(raw, {account, currency, fx, keyOf, merchants, fileL
     if (currency !== 'CAD') { row.usd = r.charge; row.fx = rate; }
     return row;
   });
-  return {kind: 'cards', account, mode: 'replace', label: fileLabel || account + ' (read with AI)',
+  return {kind: 'cards', account, mode, label: fileLabel || account + ' (read with AI)',
     rows: withIds(rows, 'x', (r) => [r.account, r.date, r.spend, r.merchant].join('|')), ...span(rows)};
 }
 

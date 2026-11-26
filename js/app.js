@@ -1,12 +1,12 @@
-import * as vault from './vault.js?v=202611261401';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261401';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261401';
-import * as A from './analysis.js?v=202611261401';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard} from './charts.js?v=202611261401';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261401';
-import * as M from './mortgage.js?v=202611261401';
-import {latestUsdCad} from './fx.js?v=202611261401';
-import * as PK from './passkey.js?v=202611261401';
+import * as vault from './vault.js?v=202611261404';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261404';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261404';
+import * as A from './analysis.js?v=202611261404';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard} from './charts.js?v=202611261404';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261404';
+import * as M from './mortgage.js?v=202611261404';
+import {latestUsdCad} from './fx.js?v=202611261404';
+import * as PK from './passkey.js?v=202611261404';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -85,7 +85,7 @@ async function showLogin() {
     }
   }},
     h('img', {src: 'logo.jpg', alt: '', class: 'login-logo', width: 112, height: 112}),
-    h('h1', {class: 'login-title'}, 'Finance dashboard'),
+    h('h1', {class: 'login-title'}, 'ALF+VERA+OLEH bank'),
     h('p', {class: 'muted'}, 'Sign in to open your data.'),
     pkBtn, pk && h('p', {class: 'or'}, 'or use your password'),
     h('label', {class: 'field'}, h('span', {}, 'Username'), user),
@@ -421,7 +421,7 @@ function renderShell() {
       h('button', {onClick: (ev) => { ev.target.closest('details').open = false; settingsDialog(); }}, 'Settings')));
   app.replaceChildren(
     h('header', {class: 'top'},
-      h('div', {class: 'brand'}, h('img', {src: 'logo-small.jpg', alt: '', class: 'brand-logo', width: 32, height: 32}), h('strong', {}, 'Finance dashboard'), h('span', {class: 'muted', id: 'range'})),
+      h('div', {class: 'brand'}, h('img', {src: 'logo-small.jpg', alt: '', class: 'brand-logo', width: 32, height: 32}), h('strong', {}, 'ALF+VERA+OLEH bank'), h('span', {class: 'muted', id: 'range'})),
       h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing', 'mortgages:Mortgages'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id, onClick: () => { if (isFolded(id)) setFolded([id], false); }}, t); })),
       h('div', {class: 'actions'},
         h('button', {class: 'btn primary', onClick: () => uploadDialog()}, 'Add transactions'), menu,

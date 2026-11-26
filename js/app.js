@@ -1,11 +1,11 @@
-import * as vault from './vault.js?v=202611261339';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261339';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261339';
-import * as A from './analysis.js?v=202611261339';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261339';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261339';
-import * as M from './mortgage.js?v=202611261339';
-import {latestUsdCad} from './fx.js?v=202611261339';
+import * as vault from './vault.js?v=202611261344';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261344';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261344';
+import * as A from './analysis.js?v=202611261344';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261344';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261344';
+import * as M from './mortgage.js?v=202611261344';
+import {latestUsdCad} from './fx.js?v=202611261344';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -554,6 +554,13 @@ function banksSection() {
 function housingSection() {
   if (!data.rbc.length) return section('housing', 'Housing and rental properties', h('p', {class: 'muted'}, 'Upload your RBC chequing file to see this section.'));
   const props = A.properties(data.rbc), hs = A.housing(data.rbc, props);
+  const rbcRent = hs.mRent, myRent = data.settings.homeRent;
+  if (myRent > 0) { hs.mRent = myRent; hs.mHousing = myRent - hs.mNetRental; }
+  const rentInput = h('input', {type: 'number', step: '1', min: '0', value: Math.round(hs.mRent), 'aria-label': 'Your monthly rent', class: 'rent-input'});
+  const rentEditor = h('div', {class: 'form rent-form'},
+    h('label', {class: 'field'}, h('span', {}, 'Your rent per month'), rentInput),
+    h('button', {class: 'btn', onClick: async () => { const v = Number(rentInput.value); if (!(v >= 0)) return; data.settings.homeRent = v; await persist('Rent set to ' + fmt.usd(v)); renderAll(); }}, 'Save rent'),
+    myRent > 0 ? h('button', {class: 'linkbtn', onClick: async () => { delete data.settings.homeRent; await persist('Using the rent from RBC again'); renderAll(); }}, 'Use RBC amount (' + fmt.usd(rbcRent) + ')') : h('span', {class: 'note'}, 'Now using ' + fmt.usd(rbcRent) + ', the usual payment in your RBC account.'));
   const items = [{name: 'Rent for your home', value: -hs.mRent, color: COLORS[1], text: '−' + fmt.usd(hs.mRent), tip: ['Rent for your home', fmt.usd(hs.mRent) + ' a month']},
     ...props.map((p) => ({name: p.property + ', net', value: p.mNet, color: COLORS[0], text: sign(p.mNet), tip: [p.property, 'Rent: ' + fmt.usd(p.mIncome), 'Mortgage: ' + fmt.usd(p.mMortgage), ...(p.mFees ? ['Condo fee: ' + fmt.usd(p.mFees)] : []), 'Net: ' + fmt.usd(p.mNet)]})),
     {name: 'What your home costs you', value: -hs.mHousing, color: COLORS[2], text: '−' + fmt.usd(hs.mHousing), tip: ['What your home costs you', 'Rent minus the rentals’ net: ' + fmt.usd(hs.mHousing)]}];
@@ -563,6 +570,7 @@ function housingSection() {
   return section('housing', 'Housing and rental properties',
     h('p', {class: 'take'}, 'Rent for your home is ', h('b', {}, fmt.usd(hs.mRent)), ' a month. After mortgages and the condo fee, the rentals bring in ', h('b', {}, fmt.usd(hs.mNetRental)),
       ' a month, so your home costs you about ', h('b', {}, fmt.usd(hs.mHousing)), ' a month once that’s counted.'),
+    rentEditor,
     h('div', {class: 'two'},
       h('div', {}, h('h3', {}, 'A typical month'), chart('htypical', 'short')),
       h('div', {}, h('h3', {}, 'So far this year'), h('div', {class: 'cards'},

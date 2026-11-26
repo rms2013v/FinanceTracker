@@ -190,3 +190,4 @@ textarea.paste { width: 100%; font: 13px/1.45 ui-monospace, SFMono-Regular, Menl
 .whatif-out { font-size: 15px; margin: 4px 0 8px; }
 .sub details summary { cursor: pointer; margin-top: 6px; font-weight: 550; }
 .sub h3 .tag { vertical-align: 2px; margin-left: 4px; }
+.rent-form { margin: 0 0 8px; } .rent-form .field input { width: 140px; }

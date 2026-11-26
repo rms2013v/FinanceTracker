@@ -1,9 +1,9 @@
-import * as vault from './vault.js';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js';
-import {readLayout, applyLayout, categorize, signature, merchantKey, DEFAULT_MODEL} from './ai.js';
-import * as A from './analysis.js';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js';
-import {DEFAULT_FX} from './rules.js';
+import * as vault from './vault.js?v=202611261045';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261045';
+import {readLayout, applyLayout, categorize, signature, merchantKey, DEFAULT_MODEL} from './ai.js?v=202611261045';
+import * as A from './analysis.js?v=202611261045';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261045';
+import {DEFAULT_FX} from './rules.js?v=202611261045';
 
 const XLSX = window.XLSX;
 const IDLE_MINUTES = 15;

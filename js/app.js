@@ -1,5 +1,6 @@
 import * as vault from './vault.js';
-import {parseFile, merge, CARD_ACCOUNTS, ACCOUNTS} from './parse.js';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js';
+import {readLayout, applyLayout, categorize, signature, merchantKey, DEFAULT_MODEL} from './ai.js';
 import * as A from './analysis.js';
 import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js';
 import {DEFAULT_FX} from './rules.js';
@@ -36,7 +37,7 @@ function toast(msg, bad) {
   t.textContent = msg; t.className = bad ? 'show bad' : 'show';
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 2600);
 }
-const emptyData = () => ({cards: [], chq: [], rbc: [], income: [], uploads: [], settings: {fx: DEFAULT_FX}});
+const emptyData = () => ({cards: [], chq: [], rbc: [], income: [], uploads: [], settings: {fx: DEFAULT_FX, aiKey: '', aiModel: DEFAULT_MODEL, formats: {}, merchants: {}}});
 const normalize = (d) => ({...emptyData(), ...(d || {}), settings: {...emptyData().settings, ...((d || {}).settings || {})}});
 
 async function persist(msg) {
@@ -127,37 +128,86 @@ function lock(msg) { session = null; data = null; clearTimeout(idleTimer); docum
 function readFile(file) {
   return /\.(csv|txt)$/i.test(file.name) ? file.text() : file.arrayBuffer().then((b) => new Uint8Array(b));
 }
+const uniqBy = (a, f) => { const m = new Map(); for (const x of a) if (!m.has(f(x))) m.set(f(x), x); return [...m.values()]; };
+
+// Files the dashboard doesn't know are read with Claude: it works out the columns, then every row is read here.
+async function readWithAI(it, draw) {
+  it.busy = true; it.aiError = ''; draw();
+  try {
+    const st = data.settings;
+    const sig = signature(it.sheets), saved = st.formats[sig];
+    const L = saved ? saved.layout : await readLayout(st, it.sheets, it.file.name);
+    if (!L.isTransactions) throw new Error('Claude says this isn’t a list of transactions: ' + L.summary);
+    if (L.kind === 'bank') throw new Error('This looks like a bank account statement (' + L.summary + '). AI reading works for credit card activity for now.');
+    const raw = applyLayout(it.sheets, L);
+    if (!raw.length) throw new Error('No transactions were found with the layout Claude described.');
+    const need = uniqBy(raw.map((r) => ({key: merchantKey(r.desc), desc: r.desc, hint: r.hint})), (m) => m.key).filter((m) => !st.merchants[m.key]);
+    const fresh = need.length && st.aiKey ? await categorize(st, need) : {};
+    const names = cardAccounts(data.cards), guess = names.find((a) => a.toLowerCase().includes(String(L.accountName).toLowerCase()) || String(L.accountName).toLowerCase().includes(a.toLowerCase()));
+    it.ai = {L, raw, fresh, sig, saved: !!saved, account: saved ? saved.account : (guess || L.accountName || 'Other card'), currency: L.currency === 'CAD' ? 'CAD' : L.currency === 'OTHER' ? 'USD' : L.currency, fx: st.fx};
+    buildAI(it);
+  } catch (e) { it.aiError = e.message; }
+  it.busy = false; draw();
+}
+function buildAI(it) {
+  const a = it.ai;
+  it.batch = aiCardBatch(a.raw, {account: a.account.trim() || 'Other card', currency: a.currency, fx: a.fx, keyOf: merchantKey,
+    merchants: {...data.settings.merchants, ...a.fresh}, fileLabel: (a.account.trim() || 'Other card') + ' (read with AI)'});
+}
+
 function uploadDialog(initial) {
   let items = [];
   const list = h('div', {class: 'upl-list'});
   const confirm = h('button', {class: 'btn primary', disabled: true}, 'Add to dashboard');
   const input = h('input', {type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.txt', id: 'upl-input', class: 'sr-only'});
   const drop = h('label', {class: 'drop', for: 'upl-input'}, h('strong', {}, 'Choose files'), ' or drop them here', h('br'),
-    h('span', {class: 'muted'}, 'Wealthsimple card and chequing CSV, Amex Aeroplan and Delta SkyMiles Excel, RBC CSV, or a CSV of extra card transactions (Date, Description, Amount).'));
+    h('span', {class: 'muted'}, 'Wealthsimple, Amex and RBC exports are read directly. Any other card activity file (CSV or Excel) can be read with AI.'));
+  const ready = (it) => it.batch && !it.batch.error && it.batch.rows.length;
+  const meta = (b, extra) => h('div', {class: 'upl-meta'}, b.label, ' · ', b.rows.length + ' transactions · ', b.from ? fmt.day(P(b.from)) + ' to ' + fmt.dayY(P(b.to)) : 'no dates',
+    ' · ', b.mode === 'replace' ? 'replaces this card’s data for those dates' : 'adds only new transactions', extra || '');
+  const accountsList = h('datalist', {id: 'acct-list'}, cardAccounts(data.cards).map((a) => h('option', {value: a})));
+  const aiView = (it) => {
+    const a = it.ai, b = it.batch, unc = b.rows.filter((r) => r.category === 'Uncategorized').length;
+    return h('div', {class: 'upl-ai'},
+      h('div', {class: 'upl-meta'}, (a.saved ? 'Read with a saved layout. ' : 'Read with AI. ') + a.L.summary),
+      meta(b, unc ? ' · ' + unc + ' uncategorized' : ''),
+      h('div', {class: 'upl-fields'},
+        h('label', {class: 'field'}, h('span', {}, 'Card'), h('input', {list: 'acct-list', value: a.account, onChange: (ev) => { a.account = ev.target.value; buildAI(it); draw(); }})),
+        a.currency !== 'CAD' && h('label', {class: 'field'}, h('span', {}, a.currency + ' to CAD rate'), h('input', {type: 'number', step: '0.0001', min: '0', value: a.fx, onChange: (ev) => { const v = Number(ev.target.value); if (v > 0) { a.fx = v; buildAI(it); draw(); } }}))),
+      h('p', {class: 'note'}, 'Using an existing card name replaces that card’s transactions for these dates. A new name adds a new card.'),
+      table([{t: 'Date', f: (r) => dateCell(r.date)}, {t: 'Merchant', f: (r) => r.merchant}, {t: 'Category', f: (r) => r.category}, {t: 'Amount', num: true, f: (r) => fmt.usd2(r.spend)}],
+        b.rows.slice(0, 6)));
+  };
   const draw = () => {
-    list.replaceChildren(...items.map((it, i) => {
+    list.replaceChildren(accountsList, ...items.map((it, i) => {
       const b = it.batch;
-      const row = h('div', {class: 'upl-item' + (b.error ? ' is-err' : '')},
-        h('div', {class: 'upl-name'}, it.file.name),
-        b.error ? h('div', {class: 'err'}, b.error) : h('div', {class: 'upl-meta'},
-          b.label, ' · ', b.rows.length + ' transactions · ', b.from ? fmt.day(P(b.from)) + ' to ' + fmt.dayY(P(b.to)) : 'no dates',
-          ' · ', b.mode === 'replace' ? 'replaces this account’s data for those dates' : 'adds only new transactions'),
-        it.amex && h('label', {class: 'upl-card'}, 'Card: ', h('select', {onChange: async (ev) => { it.card = ev.target.value; it.batch = parseFile(XLSX, it.file.name, it.raw, {card: it.card, fx: data.settings.fx}); draw(); }},
+      let body;
+      if (it.busy) body = h('div', {class: 'upl-meta'}, 'Reading with Claude…');
+      else if (it.ai && ready(it)) body = aiView(it);
+      else if (b.error) body = h('div', {}, h('div', {class: 'err'}, it.aiError || b.error),
+        it.sheets && h('button', {class: 'btn small primary', onClick: () => readWithAI(it, draw)}, it.aiError ? 'Try again with AI' : 'Read with AI'),
+        it.sheets && !data.settings.aiKey && h('span', {class: 'note'}, ' Needs your Anthropic API key in Menu → Settings.'));
+      else body = h('div', {}, meta(b),
+        it.amex && h('label', {class: 'upl-card'}, 'Card: ', h('select', {onChange: (ev) => { it.card = ev.target.value; it.batch = parseFile(XLSX, it.file.name, it.raw, {card: it.card, fx: data.settings.fx}); draw(); }},
           h('option', {value: 'aeroplan', selected: it.card === 'aeroplan'}, 'Amex Aeroplan Reserve (CAD)'),
-          h('option', {value: 'delta', selected: it.card === 'delta'}, 'Delta SkyMiles (USD)'))),
-        h('button', {class: 'linkbtn', onClick: () => { items.splice(i, 1); draw(); }}, 'Remove'));
-      return row;
+          h('option', {value: 'delta', selected: it.card === 'delta'}, 'Delta SkyMiles (USD)'))));
+      return h('div', {class: 'upl-item' + (b.error && !it.busy ? ' is-err' : '')},
+        h('div', {class: 'upl-name'}, it.file.name), h('button', {class: 'linkbtn', onClick: () => { items.splice(i, 1); draw(); }}, 'Remove'), body);
     }));
-    confirm.disabled = !items.some((it) => !it.batch.error && it.batch.rows.length);
+    confirm.disabled = !items.some(ready) || items.some((it) => it.busy);
   };
   const add = async (files) => {
     for (const file of files) {
+      const it = {file};
       try {
-        const raw = await readFile(file);
-        const batch = parseFile(XLSX, file.name, raw, {fx: data.settings.fx});
-        const amex = !batch.error && batch.kind === 'cards' && batch.account !== ACCOUNTS.ws;
-        items.push({file, raw, batch, amex, card: amex ? (batch.account === ACCOUNTS.delta ? 'delta' : 'aeroplan') : null});
-      } catch (e) { items.push({file, batch: {error: 'Couldn’t read this file: ' + e.message}}); }
+        it.raw = await readFile(file);
+        it.batch = parseFile(XLSX, file.name, it.raw, {fx: data.settings.fx});
+        it.amex = !it.batch.error && it.batch.kind === 'cards' && it.batch.account !== ACCOUNTS.ws;
+        it.card = it.amex ? (it.batch.account === ACCOUNTS.delta ? 'delta' : 'aeroplan') : null;
+        if (it.batch.error) { try { it.sheets = readTable(XLSX, file.name, it.raw); } catch { it.sheets = null; } }
+      } catch (e) { it.batch = {error: 'Couldn’t read this file: ' + e.message}; }
+      items.push(it);
+      if (it.sheets && data.settings.formats[signature(it.sheets)]) readWithAI(it, draw);
     }
     draw();
   };
@@ -169,8 +219,12 @@ function uploadDialog(initial) {
     const count = () => data.cards.length + data.chq.length + data.rbc.length;
     const before = count();
     for (const it of items) {
-      if (it.batch.error || !it.batch.rows.length) continue;
+      if (!ready(it)) continue;
       data = merge(data, it.batch);
+      if (it.ai) {
+        data.settings.formats[it.ai.sig] = {layout: it.ai.L, account: it.ai.account.trim() || 'Other card'};
+        data.settings.merchants = {...data.settings.merchants, ...it.ai.fresh};
+      }
       data.uploads.unshift({name: it.file.name, label: it.batch.label, rows: it.batch.rows.length, from: it.batch.from, to: it.batch.to, at: new Date().toISOString()});
     }
     data.uploads = data.uploads.slice(0, 50);
@@ -180,7 +234,7 @@ function uploadDialog(initial) {
   });
   const d = h('dialog', {class: 'dlg wide'},
     h('h2', {}, 'Upload files'),
-    h('p', {class: 'muted'}, 'Files are read here in your browser. Nothing is sent anywhere.'),
+    h('p', {class: 'muted'}, 'Files are read here in your browser. Only for “Read with AI” are the first rows of the file and the merchant names sent to Claude.'),
     input, drop, list,
     h('div', {class: 'dlg-actions'}, h('button', {class: 'btn', onClick: () => d.close()}, 'Cancel'), confirm));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
@@ -198,6 +252,8 @@ function settingsDialog() {
   const oldPw = h('input', {type: 'password', autocomplete: 'current-password'}), newPw = h('input', {type: 'password', autocomplete: 'new-password'}), newPw2 = h('input', {type: 'password', autocomplete: 'new-password'});
   const msg = h('p', {class: 'err'});
   const fx = h('input', {type: 'number', step: '0.0001', min: '0', value: data.settings.fx});
+  const aiKey = h('input', {type: 'password', autocomplete: 'off', placeholder: 'sk-ant-…', value: data.settings.aiKey || ''});
+  const aiModel = h('input', {type: 'text', value: data.settings.aiModel || DEFAULT_MODEL});
   const d = h('dialog', {class: 'dlg wide'},
     h('h2', {}, 'Settings'),
     h('h3', {}, 'Change password'),
@@ -213,6 +269,14 @@ function settingsDialog() {
         catch (e) { msg.textContent = e.message === 'wrong-password' ? 'The current password is wrong.' : e.message; }
       }}, 'Change password')),
     msg,
+    h('h3', {}, 'Reading files with AI'),
+    h('p', {class: 'muted'}, 'Uses your own Anthropic API key (console.anthropic.com → API keys). It is stored inside your encrypted data. When you choose “Read with AI”, the first 30 rows of that file and its merchant names are sent to Claude. Each file usually costs a few cents.'),
+    h('div', {class: 'form'},
+      h('label', {class: 'field'}, h('span', {}, 'API key'), aiKey),
+      h('label', {class: 'field'}, h('span', {}, 'Model'), aiModel),
+      h('button', {class: 'btn', onClick: async () => { data.settings.aiKey = aiKey.value.trim(); data.settings.aiModel = aiModel.value.trim() || DEFAULT_MODEL; await persist(data.settings.aiKey ? 'AI settings saved' : 'API key removed'); }}, 'Save')),
+    h('p', {class: 'note'}, Object.keys(data.settings.formats).length + ' file layouts and ' + Object.keys(data.settings.merchants).length + ' merchants remembered. ',
+      h('button', {class: 'linkbtn', onClick: async (ev) => { data.settings.formats = {}; data.settings.merchants = {}; await persist('Saved layouts and merchants cleared'); ev.target.parentElement.firstChild.textContent = '0 file layouts and 0 merchants remembered. '; }}, 'Forget them')),
     h('h3', {}, 'Default USD to CAD rate'),
     h('p', {class: 'muted'}, 'Used for new USD salary entries, and for Delta months with no CAD-priced charge to read a rate from.'),
     h('div', {class: 'form'}, h('label', {class: 'field'}, h('span', {}, 'Rate'), fx),
@@ -295,7 +359,7 @@ function renderAll() {
 
 function overview(k, per, bud) {
   const cardsSel = h('select', {'aria-label': 'Card', onChange: (ev) => setF({account: ev.target.value})},
-    h('option', {value: ''}, 'All cards'), CARD_ACCOUNTS.filter((a) => data.cards.some((r) => r.account === a)).map((a) => h('option', {value: a, selected: f.account === a}, a)));
+    h('option', {value: ''}, 'All cards'), cardAccounts(data.cards).map((a) => h('option', {value: a, selected: f.account === a}, a)));
   const groups = [...new Set(data.cards.map((r) => r.group))].sort();
   const groupSel = h('select', {'aria-label': 'Category group', onChange: (ev) => setF({group: ev.target.value, category: ''})},
     h('option', {value: ''}, 'All category groups'), groups.map((g) => h('option', {value: g, selected: f.group === g}, g)));
@@ -381,8 +445,8 @@ const d3num = (v) => (+v || 0).toLocaleString('en-CA', {minimumFractionDigits: 2
 function cardsSection(rows, base, wins, k, months) {
   const picked = A.pickMonth(months, f.month);
   const md = picked ? A.monthDetail(rows, base, picked, k) : null;
-  const keys = CARD_ACCOUNTS.filter((a) => months.some((r) => r[a]));
-  const colorOf = (a) => COLORS[CARD_ACCOUNTS.indexOf(a) % COLORS.length];
+  const all = cardAccounts(data.cards), keys = all.filter((a) => months.some((r) => r[a]));
+  const colorOf = (a) => COLORS[all.indexOf(a) % COLORS.length];
   const cats = A.categories(base);
   const catItems = (list) => list.map((d) => ({name: d.category, value: d.spend, text: fmt.usd(d.spend) + ' · ' + fmt.pct(d.share), dim: f.category && f.category !== d.category,
     tip: [d.category, 'Net spend: ' + fmt.usd(d.spend) + ' (' + fmt.pct(d.share) + ')', d.n + ' transactions', 'Click to ' + (f.category === d.category ? 'clear' : 'filter')]}));

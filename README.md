@@ -19,6 +19,16 @@ A private spending dashboard that runs entirely in your browser. You upload your
 
 Uploading a newer export of the same account replaces that account's data for the dates the file covers, so uploading the same file twice never double counts.
 
+## Reading other files with AI
+
+Files the dashboard doesn't recognise (another card's export, a different layout) get a **Read with AI** button in the upload window.
+
+1. Get an API key at console.anthropic.com → API keys (this is billed separately from a Claude subscription; a file usually costs a few cents).
+2. Paste it in **Menu → Settings → Reading files with AI** and save. It is stored inside your encrypted data, never in the code.
+3. Upload the file and click **Read with AI**. Check the preview and the card name, then add it.
+
+Only the first 30 rows of the file and its merchant names go to Claude. Claude describes the columns and sorts merchants into categories; every row is read in your browser. The layout and merchants are remembered, so the next file of the same kind is read with no AI call. AI reading covers credit card activity; other bank account statements aren't supported yet.
+
 ## Important
 
 There is no password reset. If you forget it, the data in the browser can't be opened. Use **Menu → Download backup** after each upload. The backup is encrypted with the same password and lets you move your data to another computer or browser (**Menu → Restore a backup**).

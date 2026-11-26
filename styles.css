@@ -177,3 +177,8 @@ input.rate { width: 90px; text-align: right; padding: 3px 6px; }
   .card .val { font-size: 21px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+.upl-item > div:last-child { grid-column: 1 / -1; }
+.upl-item .btn.small { margin-top: 6px; }
+.upl-fields { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.upl-fields .field input { width: 220px; }
+.upl-ai .tablewrap { margin-top: 6px; }

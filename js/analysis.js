@@ -1,5 +1,5 @@
 // All the numbers on the dashboard, worked out from the stored rows.
-import {CARD_ACCOUNTS} from './parse.js';
+import {cardAccounts} from './parse.js';
 import {ONE_OFF} from './rules.js';
 
 const DAY = 864e5;
@@ -55,11 +55,11 @@ export function period(rows, k) {
 export function monthly(rows, wins) {
   if (!wins.length) return [];
   const start = Math.min(...wins.map((w) => pd(w.start))), end = Math.max(...wins.map((w) => pd(w.end)));
-  const m = new Map();
+  const m = new Map(), accts = cardAccounts(rows);
   for (const r of rows) { const k = r.date.slice(0, 7); if (!m.has(k)) m.set(k, {}); const o = m.get(k); o[r.account] = (o[r.account] || 0) + r.spend; }
   return monthsBetween(start, end).map((month) => {
     const o = m.get(month) || {}, row = {month, total: 0};
-    for (const c of CARD_ACCOUNTS) { row[c] = o[c] || 0; row.total += row[c]; }
+    for (const c of accts) { row[c] = o[c] || 0; row.total += row[c]; }
     return row;
   });
 }

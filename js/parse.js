@@ -7,6 +7,25 @@ export const ACCOUNTS = {
   delta: 'Delta SkyMiles (USD)',
 };
 export const CARD_ACCOUNTS = [ACCOUNTS.ws, ACCOUNTS.aeroplan, ACCOUNTS.delta];
+// Every card in the data: the three known ones first, then any added with AI.
+export function cardAccounts(cards) {
+  const have = new Set(cards.map((r) => r.account));
+  return [...CARD_ACCOUNTS.filter((a) => have.has(a)), ...[...have].filter((a) => !CARD_ACCOUNTS.includes(a)).sort()];
+}
+
+// Turns rows read with AI into card rows. merchants maps a merchant key to {name, category}.
+export function aiCardBatch(raw, {account, currency, fx, keyOf, merchants, fileLabel}) {
+  const rate = currency === 'CAD' ? 1 : (+fx || DEFAULT_FX);
+  const rows = raw.map((r) => {
+    const m = merchants[keyOf(r.desc)] || {name: title(r.desc).slice(0, 60), category: 'Uncategorized'};
+    const row = {date: r.date, account, merchant: m.name, category: m.category, group: GROUP_OF[m.category] || 'Other',
+      type: r.charge > 0 ? 'Purchase' : 'Refund', spend: Math.round(r.charge * rate * 100) / 100};
+    if (currency !== 'CAD') { row.usd = r.charge; row.fx = rate; }
+    return row;
+  });
+  return {kind: 'cards', account, mode: 'replace', label: fileLabel || account + ' (read with AI)',
+    rows: withIds(rows, 'x', (r) => [r.account, r.date, r.spend, r.merchant].join('|')), ...span(rows)};
+}
 
 const MONTHS = {jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12};
 const pad = (n) => String(n).padStart(2, '0');
@@ -34,8 +53,16 @@ export function isoDate(v, order = 'mdy') {
   if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
   m = s.match(/^(\d{1,2})[ -]([A-Za-z]{3})[a-z]*[ -,]*(\d{4})$/);
   if (m && MONTHS[m[2].toLowerCase()]) return `${m[3]}-${pad(MONTHS[m[2].toLowerCase()])}-${pad(m[1])}`;
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return order === 'dmy' ? `${m[3]}-${pad(m[2])}-${pad(m[1])}` : `${m[3]}-${pad(m[1])}-${pad(m[2])}`;
+  m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  m = s.match(/^([A-Za-z]{3})[a-z]*\.? (\d{1,2}),? (\d{4})/);
+  if (m && MONTHS[m[1].toLowerCase()]) return `${m[3]}-${pad(MONTHS[m[1].toLowerCase()])}-${pad(m[2])}`;
+  m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);
+  if (m) {
+    let [d, mo] = order === 'dmy' ? [+m[1], +m[2]] : [+m[2], +m[1]];
+    if (mo > 12 && d <= 12) [d, mo] = [mo, d];
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${m[3]}-${pad(mo)}-${pad(d)}` : '';
+  }
   return '';
 }
 

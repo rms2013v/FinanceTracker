@@ -29,6 +29,10 @@ Files the dashboard doesn't recognise (another card's export, a different layout
 
 Only the first 30 rows of the file and its merchant names go to Claude. Claude describes the columns and sorts merchants into categories; every row is read in your browser. The layout and merchants are remembered, so the next file of the same kind is read with no AI call. AI reading covers credit card activity; other bank account statements aren't supported yet.
 
+## Sync across devices
+
+Menu → Settings → Sync across devices keeps your encrypted data on the `data` branch of this repo, so any device can sign in with just the username and password. The file is public but encrypted (AES-256-GCM, key from your password with PBKDF2, 600,000 rounds), so sync needs a password of 14 characters or more. Saving needs a fine-grained GitHub token limited to this repo with Contents: Read and write; it is kept inside the encrypted data. The `data` branch isn't published by GitHub Pages, so saving doesn't rebuild the site.
+
 ## Important
 
 There is no password reset. If you forget it, the data in the browser can't be opened. Use **Menu → Download backup** after each upload. The backup is encrypted with the same password and lets you move your data to another computer or browser (**Menu → Restore a backup**).

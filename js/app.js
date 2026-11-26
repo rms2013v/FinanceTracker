@@ -1,12 +1,13 @@
-import * as vault from './vault.js?v=202611261420';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261420';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261420';
-import * as A from './analysis.js?v=202611261420';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard} from './charts.js?v=202611261420';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261420';
-import * as M from './mortgage.js?v=202611261420';
-import {latestUsdCad} from './fx.js?v=202611261420';
-import * as PK from './passkey.js?v=202611261420';
+import * as vault from './vault.js?v=202611261447';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261447';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261447';
+import * as A from './analysis.js?v=202611261447';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard} from './charts.js?v=202611261447';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261447';
+import * as M from './mortgage.js?v=202611261447';
+import {latestUsdCad} from './fx.js?v=202611261447';
+import * as PK from './passkey.js?v=202611261447';
+import * as cloud from './cloud.js?v=202611261447';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -45,8 +46,56 @@ const emptyData = () => ({cards: [], chq: [], rbc: [], income: [], uploads: [], 
 const normalize = (d) => ({...emptyData(), ...(d || {}), settings: {...emptyData().settings, ...((d || {}).settings || {})}});
 
 async function persist(msg) {
-  try { await vault.save(session, data); if (msg) toast(msg); }
+  try { await vault.save(session, data); if (msg) toast(msg); scheduleSync(); }
   catch (e) { toast('Couldn’t save in this browser: ' + e.message, true); }
+}
+
+// ---- sync across devices ------------------------------------------------------
+let syncTimer = null, syncing = null, syncState = {at: null, error: null, pending: false};
+const syncOn = () => !!(data?.settings?.cloud && data.settings.ghToken);
+function scheduleSync(delay = 4000) {
+  if (!syncOn()) return;
+  syncState.pending = true; drawSync();
+  clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow(), delay);
+}
+async function syncNow() {
+  clearTimeout(syncTimer); syncTimer = null;
+  if (!syncOn()) return;
+  if (syncing) return syncing;
+  const token = data.settings.ghToken;
+  syncing = (async () => {
+    syncState.pending = false; syncState.busy = true; drawSync();
+    try { await cloud.upload(token, await vault.backupText()); syncState = {at: new Date(), error: null, pending: false}; }
+    catch (e) { syncState = {...syncState, error: e.message, busy: false}; }
+    syncState.busy = false; drawSync(); syncing = null;
+  })();
+  return syncing;
+}
+function drawSync() {
+  const el = document.getElementById('sync'); if (!el) return;
+  if (!syncOn()) { el.textContent = ''; el.className = 'sync'; return; }
+  const st = syncState;
+  el.className = 'sync' + (st.error ? ' bad' : '');
+  el.textContent = st.error ? 'Not synced' : st.busy || st.pending ? 'Saving…' : st.at ? 'Synced ' + st.at.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : 'Synced';
+  el.title = st.error ? 'Sync failed: ' + st.error + ' Open Settings to try again.' : 'Your encrypted data is saved online, so any device can sign in.';
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && syncTimer) syncNow(); });
+window.addEventListener('pagehide', () => { if (syncTimer) syncNow(); });
+
+// Signs in with the newest copy of your data: this device's or the online one.
+async function signIn(password, file) {
+  if (file) return vault.restore(await file.text(), password);
+  const local = await vault.localRecord();
+  let online = null;
+  try { online = await cloud.fetchRecord(); } catch { online = null; }
+  const tries = [local, online].filter(Boolean).sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+  if (!tries.length) throw new Error('no-data');
+  let wrong;
+  for (const rec of tries) {
+    try { return rec === local ? await vault.unlock(password, rec) : await vault.adopt(rec, password); }
+    catch (e) { if (e.message !== 'wrong-password') throw e; wrong = e; }
+  }
+  throw wrong;
 }
 
 // ---- login ----------------------------------------------------------------
@@ -60,7 +109,7 @@ async function showLogin() {
   const pk = has && PK.supported() && PK.saved();
   const pkBtn = pk && h('button', {type: 'button', class: 'btn primary wide', onClick: async () => {
     err.textContent = ''; pkBtn.disabled = true; pkBtn.textContent = 'Waiting for Touch ID…';
-    try { start(await vault.unlock(await PK.password())); }
+    try { start(await signIn(await PK.password())); }
     catch (e) {
       err.textContent = e.message === 'wrong-password' ? 'Your password has changed since the passkey was set up. Sign in with your password, then set the passkey up again in Settings.' : PK.explain(e);
       pkBtn.disabled = false; pkBtn.textContent = 'Sign in with passkey';
@@ -68,18 +117,18 @@ async function showLogin() {
   }}, 'Sign in with passkey');
   if (pk) btn.className = 'btn wide';
   const fileBox = file && h('div', {hidden: true},
-    h('p', {class: 'note'}, 'This device has no data yet. Choose your backup file (on your computer: Menu → Download backup), then press Sign in again. You only need it once per device.'),
+    h('p', {class: 'note'}, 'No data was found on this device or online. Choose your backup file (on your computer: Menu → Download backup), then press Sign in again.'),
     h('label', {class: 'field'}, h('span', {}, 'Backup file'), file));
   const form = h('form', {class: 'login-card', onSubmit: async (ev) => {
     ev.preventDefault(); err.textContent = '';
     if (user.value.trim().toLowerCase() !== USERNAME) { err.textContent = 'That username and password don’t match.'; pw.value = ''; return; }
-    if (!has && !file.files[0]) { fileBox.hidden = false; err.textContent = ''; return; }
     btn.disabled = true; btn.textContent = 'Signing in…';
     try {
-      const s = has ? await vault.unlock(pw.value) : await vault.restore(await file.files[0].text(), pw.value);
+      const s = await signIn(pw.value, file && file.files[0]);
       pw.value = '';
       start(s);
     } catch (e) {
+      if (e.message === 'no-data' && fileBox) { fileBox.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; return; }
       err.textContent = e.message === 'wrong-password' ? 'That username and password don’t match.' : e.message === 'bad-file' ? 'That file isn’t a backup from this dashboard.' : 'Something went wrong: ' + e.message;
       btn.disabled = false; btn.textContent = 'Sign in'; pw.select();
     }
@@ -121,7 +170,7 @@ function restoreDialog(fromLogin) {
 let idleTimer;
 function bumpIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(() => lock('Locked after ' + IDLE_MINUTES + ' minutes without activity'), IDLE_MINUTES * 60000); }
 ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((ev) => window.addEventListener(ev, () => { if (session) bumpIdle(); }, {passive: true}));
-function start(s) { session = {key: s.key, salt: s.salt, iter: s.iter}; data = normalize(s.data); bumpIdle(); renderShell(); autoFx(); }
+function start(s) { session = {key: s.key, salt: s.salt, iter: s.iter}; data = normalize(s.data); syncState = {at: null, error: null, pending: false}; bumpIdle(); renderShell(); drawSync(); autoFx(); }
 const todayISO = () => new Date().toLocaleDateString('en-CA');
 // Fills the default USD to CAD rate with the Bank of Canada's latest daily rate, at most once a day.
 // Saved entries keep the rate they were made with, so earlier numbers never shift.
@@ -136,7 +185,7 @@ async function autoFx(force) {
     renderAll();
   } catch (e) { if (force) toast('Couldn’t get the Bank of Canada rate: ' + e.message, true); }
 }
-function lock(msg) { session = null; data = null; clearTimeout(idleTimer); document.querySelectorAll('dialog').forEach((d) => d.remove()); showLogin(); if (msg) toast(msg); }
+function lock(msg) { if (syncTimer) syncNow(); session = null; data = null; clearTimeout(idleTimer); document.querySelectorAll('dialog').forEach((d) => d.remove()); showLogin(); if (msg) toast(msg); }
 
 // ---- uploads --------------------------------------------------------------
 function readFile(file) {
@@ -333,6 +382,52 @@ function cardArtBlock() {
   return box;
 }
 
+function syncBlock() {
+  const box = h('div', {});
+  const draw = () => {
+    const st = data.settings;
+    if (syncOn()) {
+      box.replaceChildren(
+        h('p', {class: 'muted'}, 'On. Your encrypted data is saved online after each change, so you can sign in on any device with just your username and password.',
+          syncState.at ? ' Last saved ' + syncState.at.toLocaleString() + '.' : ''),
+        syncState.error && h('p', {class: 'err'}, syncState.error),
+        h('div', {class: 'row-actions'},
+          h('button', {class: 'btn', onClick: async () => { await syncNow(); draw(); toast(syncState.error ? 'Sync failed' : 'Synced'); }}, 'Sync now'),
+          h('button', {class: 'btn', onClick: async () => { data.settings.cloud = false; await persist('Sync turned off. The online copy stays until you delete it.'); drawSync(); draw(); }}, 'Turn off sync'),
+          h('button', {class: 'btn danger', onClick: async (ev) => {
+            if (!ev.target.dataset.armed) { ev.target.dataset.armed = '1'; ev.target.textContent = 'Click again to delete the online copy'; return; }
+            try { await cloud.remove(st.ghToken); data.settings.cloud = false; await persist('Online copy deleted and sync turned off'); drawSync(); draw(); } catch (e) { toast(e.message, true); }
+          }}, 'Delete online copy')));
+      return;
+    }
+    const pw = h('input', {type: 'password', autocomplete: 'current-password'});
+    const tok = h('input', {type: 'password', autocomplete: 'off', placeholder: 'github_pat_…', value: st.ghToken || ''});
+    const msg = h('p', {class: 'err'});
+    box.replaceChildren(
+      h('p', {class: 'muted'}, 'Keep your encrypted data online so any device can sign in with just your username and password. It’s stored in your GitHub repo, where anyone could download the file, but it can only be opened with your password, so your password must be at least 14 characters.'),
+      h('p', {class: 'note'}, 'Saving needs a GitHub token: ', h('a', {href: cloud.TOKEN_URL, target: '_blank', rel: 'noopener'}, 'create one here'),
+        '. Choose Repository access → Only select repositories → FinanceTracker, and Permissions → Contents → Read and write. The token is kept inside your encrypted data.'),
+      h('div', {class: 'form'},
+        h('label', {class: 'field'}, h('span', {}, 'Your password'), pw),
+        h('label', {class: 'field'}, h('span', {}, 'GitHub token'), tok),
+        h('button', {class: 'btn primary', onClick: async (ev) => {
+          msg.textContent = '';
+          try { await vault.unlock(pw.value); } catch { msg.textContent = 'That password is wrong.'; return; }
+          if (pw.value.length < 14) { msg.textContent = 'Your password is shorter than 14 characters. Change it under Change password below first, then turn on sync.'; return; }
+          if (!tok.value.trim()) { msg.textContent = 'Paste your GitHub token.'; return; }
+          ev.target.disabled = true; ev.target.textContent = 'Saving online…';
+          data.settings.ghToken = tok.value.trim(); data.settings.cloud = true;
+          await vault.save(session, data);
+          await syncNow();
+          if (syncState.error) { data.settings.cloud = false; await vault.save(session, data); msg.textContent = syncState.error; ev.target.disabled = false; ev.target.textContent = 'Turn on sync'; drawSync(); return; }
+          pw.value = ''; toast('Sync is on. Sign in on any device with your username and password.'); draw();
+        }}, 'Turn on sync')),
+      msg);
+  };
+  draw();
+  return box;
+}
+
 function passkeyBlock() {
   const box = h('div', {});
   const draw = () => {
@@ -367,6 +462,8 @@ function settingsDialog() {
   const aiModel = h('input', {type: 'text', value: data.settings.aiModel || DEFAULT_MODEL});
   const d = h('dialog', {class: 'dlg wide'},
     h('h2', {}, 'Settings'),
+    h('h3', {}, 'Sync across devices'),
+    syncBlock(),
     h('h3', {}, 'Passkey'),
     passkeyBlock(),
     h('h3', {}, 'Card pictures'),
@@ -378,9 +475,9 @@ function settingsDialog() {
       h('label', {class: 'field'}, h('span', {}, 'Repeat new password'), newPw2),
       h('button', {class: 'btn', onClick: async () => {
         msg.textContent = '';
-        if (newPw.value.length < 10) { msg.textContent = 'Use at least 10 characters.'; return; }
+        if (newPw.value.length < (syncOn() ? 14 : 10)) { msg.textContent = 'Use at least ' + (syncOn() ? 14 : 10) + ' characters' + (syncOn() ? ' while sync is on.' : '.'); return; }
         if (newPw.value !== newPw2.value) { msg.textContent = 'The new passwords don’t match.'; return; }
-        try { await persist(); const s = await vault.changePassword(oldPw.value, newPw.value); session = {key: s.key, salt: s.salt, iter: s.iter}; PK.forget(); toast('Password changed. Set up your passkey again, and download a new backup: old backups still use the old password.'); d.close(); }
+        try { await persist(); const s = await vault.changePassword(oldPw.value, newPw.value); session = {key: s.key, salt: s.salt, iter: s.iter}; PK.forget(); scheduleSync(0); toast('Password changed. Set up your passkey again, and download a new backup: old backups still use the old password.'); d.close(); }
         catch (e) { msg.textContent = e.message === 'wrong-password' ? 'The current password is wrong.' : e.message; }
       }}, 'Change password')),
     msg,
@@ -405,7 +502,7 @@ function settingsDialog() {
       h('tbody', {}, data.uploads.map((u) => h('tr', {}, h('td', {}, new Date(u.at).toLocaleString()), h('td', {}, u.name), h('td', {}, u.label), h('td', {class: 'num'}, u.rows), h('td', {}, u.from ? u.from + ' to ' + u.to : '')))))) : h('p', {class: 'muted'}, 'No uploads yet.'),
     h('h3', {}, 'Delete everything'),
     h('p', {class: 'muted'}, 'Removes all data from this browser. Download a backup first if you may want it back.'),
-    h('button', {class: 'btn danger', onClick: async () => { if (!window.confirm('Delete all data in this browser?')) return; await vault.wipe(); PK.forget(); d.close(); lock('All data deleted'); }}, 'Delete all data'),
+    h('button', {class: 'btn danger', onClick: async () => { if (!window.confirm(syncOn() ? 'Delete all data in this browser? The online copy stays, so you can sign in again. To remove it too, use Delete online copy under Sync first.' : 'Delete all data in this browser?')) return; await vault.wipe(); PK.forget(); d.close(); lock('All data deleted'); }}, 'Delete all data'),
     h('div', {class: 'dlg-actions'}, h('button', {class: 'btn primary', onClick: () => d.close()}, 'Done')));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
 }
@@ -421,7 +518,7 @@ function renderShell() {
       h('button', {onClick: (ev) => { ev.target.closest('details').open = false; settingsDialog(); }}, 'Settings')));
   app.replaceChildren(
     h('header', {class: 'top'},
-      h('div', {class: 'brand'}, h('img', {src: 'logo-small.jpg', alt: '', class: 'brand-logo', width: 32, height: 32}), h('strong', {}, 'ALF+VERA+OLEH bank'), h('span', {class: 'muted', id: 'range'})),
+      h('div', {class: 'brand'}, h('img', {src: 'logo-small.jpg', alt: '', class: 'brand-logo', width: 32, height: 32}), h('strong', {}, 'ALF+VERA+OLEH bank'), h('span', {class: 'muted', id: 'range'}), h('span', {class: 'sync', id: 'sync', role: 'status'})),
       h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing', 'mortgages:Mortgages'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id, onClick: () => { if (isFolded(id)) setFolded([id], false); }}, t); })),
       h('div', {class: 'actions'},
         h('button', {class: 'btn primary', onClick: () => uploadDialog()}, 'Add transactions'), menu,

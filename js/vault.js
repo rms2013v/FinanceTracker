@@ -76,3 +76,11 @@ export async function restore(text, password) {
 }
 
 export async function wipe() { await idbDel(RECORD); }
+
+export async function localRecord() { return idbGet(RECORD); }
+// Opens a record (from this device or online) and keeps it as this device's copy.
+export async function adopt(record, password) {
+  const s = await unlock(password, record);
+  await idbSet(RECORD, record);
+  return s;
+}

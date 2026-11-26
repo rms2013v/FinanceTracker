@@ -161,3 +161,35 @@ export function grouped(el, rows, keys, {ariaLabel = '', dashed, picked, onPick}
   xAxis(svg, x0, H, mb, monLabel);
   hits(svg, rows, x0, 'month', x0.step(), mt, H, mb, tip(el), (r) => [monName(r.month), ...keys.map((k) => k[1] + ': ' + fmt.usd(r[k[0]]))], onPick, (r) => 'Show ' + monName(r.month));
 }
+
+// Lines over time. series: [{name, color, points: [{date, value}]}]; marks: [{date, label}]
+export function lineChart(el, series, {marks = [], ariaLabel = ''} = {}) {
+  el.replaceChildren();
+  legend(el, series.map((s) => [s.name, s.color]));
+  const W = Math.max(el.clientWidth, 280), H = 260, mt = 14, mb = 24;
+  const svg = d3.select(el).append('svg').attr('width', W).attr('height', H).attr('role', 'img').attr('aria-label', ariaLabel);
+  const all = series.flatMap((s) => s.points);
+  if (!all.length) return;
+  const y = d3.scaleLinear().domain([0, d3.max(all, (p) => p.value) * 1.05]).nice().range([H - mb, mt]);
+  const ml = yAxis(svg, y, W);
+  const x = d3.scaleUtc().domain(d3.extent(all, (p) => P(p.date))).range([ml + 4, W - 8]);
+  svg.append('g').attr('class', 'axis').attr('transform', `translate(0,${H - mb})`).call(d3.axisBottom(x).ticks(Math.max(2, Math.floor(W / 90))).tickFormat(d3.utcFormat('%Y')).tickSizeOuter(0));
+  for (const m of marks) {
+    const xm = x(P(m.date)); if (xm < ml || xm > W) continue;
+    svg.append('line').attr('class', 'ref').attr('x1', xm).attr('x2', xm).attr('y1', mt).attr('y2', H - mb);
+    svg.append('text').attr('class', 'svgmuted').attr('x', xm + 4).attr('y', mt + 10).text(m.label);
+  }
+  const line = d3.line().x((p) => x(P(p.date))).y((p) => y(p.value));
+  for (const s of series) svg.append('path').datum(s.points).attr('fill', 'none').style('stroke', s.color).attr('stroke-width', 2.2).attr('d', line);
+  const t = tip(el), bis = d3.bisector((p) => P(p.date)).center;
+  const guide = svg.append('line').attr('class', 'ref').attr('y1', mt).attr('y2', H - mb).style('opacity', 0);
+  svg.append('rect').attr('class', 'hit').attr('x', ml).attr('y', mt).attr('width', W - ml).attr('height', H - mt - mb).style('fill', 'transparent')
+    .on('pointermove', (ev) => {
+      const [mx] = d3.pointer(ev), d = x.invert(mx);
+      const rows = series.map((s) => { const p = s.points[bis(s.points, d)]; return p && [s.name, p]; }).filter(Boolean);
+      if (!rows.length) return;
+      guide.attr('x1', mx).attr('x2', mx).style('opacity', 1);
+      t.show(ev, [fmt.monY(d), ...rows.map(([n, p]) => n + ': ' + fmt.usd(p.value))]);
+    })
+    .on('pointerleave', () => { guide.style('opacity', 0); t.hide(); });
+}

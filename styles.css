@@ -185,3 +185,8 @@ input.rate { width: 90px; text-align: right; padding: 3px 6px; }
 .linkbtn.small-link { display: block; font-size: 13px; margin-top: 4px; }
 .paste-row { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; margin: 0 0 12px; }
 textarea.paste { width: 100%; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.whatif { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.whatif .form { margin: 6px 0; }
+.whatif-out { font-size: 15px; margin: 4px 0 8px; }
+.sub details summary { cursor: pointer; margin-top: 6px; font-weight: 550; }
+.sub h3 .tag { vertical-align: 2px; margin-left: 4px; }

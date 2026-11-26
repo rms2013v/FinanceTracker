@@ -1,9 +1,11 @@
-import * as vault from './vault.js?v=202611261258';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261258';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261258';
-import * as A from './analysis.js?v=202611261258';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261258';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261258';
+import * as vault from './vault.js?v=202611261339';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261339';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261339';
+import * as A from './analysis.js?v=202611261339';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261339';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261339';
+import * as M from './mortgage.js?v=202611261339';
+import {latestUsdCad} from './fx.js?v=202611261339';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -38,7 +40,7 @@ function toast(msg, bad) {
   t.textContent = msg; t.className = bad ? 'show bad' : 'show';
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 2600);
 }
-const emptyData = () => ({cards: [], chq: [], rbc: [], income: [], uploads: [], settings: {fx: DEFAULT_FX, aiKey: '', aiModel: DEFAULT_MODEL, formats: {}, merchants: {}}});
+const emptyData = () => ({cards: [], chq: [], rbc: [], income: [], uploads: [], mortgages: [], settings: {fx: DEFAULT_FX, aiKey: '', aiModel: DEFAULT_MODEL, formats: {}, merchants: {}}});
 const normalize = (d) => ({...emptyData(), ...(d || {}), settings: {...emptyData().settings, ...((d || {}).settings || {})}});
 
 async function persist(msg) {
@@ -106,7 +108,21 @@ function restoreDialog(fromLogin) {
 let idleTimer;
 function bumpIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(() => lock('Locked after ' + IDLE_MINUTES + ' minutes without activity'), IDLE_MINUTES * 60000); }
 ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((ev) => window.addEventListener(ev, () => { if (session) bumpIdle(); }, {passive: true}));
-function start(s) { session = {key: s.key, salt: s.salt, iter: s.iter}; data = normalize(s.data); bumpIdle(); renderShell(); }
+function start(s) { session = {key: s.key, salt: s.salt, iter: s.iter}; data = normalize(s.data); bumpIdle(); renderShell(); autoFx(); }
+const todayISO = () => new Date().toLocaleDateString('en-CA');
+// Fills the default USD to CAD rate with the Bank of Canada's latest daily rate, at most once a day.
+// Saved entries keep the rate they were made with, so earlier numbers never shift.
+async function autoFx(force) {
+  const st = data?.settings; if (!st || (st.fxManual && !force)) return;
+  if (!force && st.fxChecked === todayISO()) return;
+  try {
+    const {rate, date} = await latestUsdCad();
+    if (!data) return;
+    data.settings = {...data.settings, fx: rate, fxDate: date, fxChecked: todayISO(), fxManual: false};
+    await persist(force ? 'Rate updated: ' + rate.toFixed(4) + ' (Bank of Canada, ' + fmt.day(P(date)) + ')' : null);
+    renderAll();
+  } catch (e) { if (force) toast('Couldn’t get the Bank of Canada rate: ' + e.message, true); }
+}
 function lock(msg) { session = null; data = null; clearTimeout(idleTimer); document.querySelectorAll('dialog').forEach((d) => d.remove()); showLogin(); if (msg) toast(msg); }
 
 // ---- uploads --------------------------------------------------------------
@@ -297,10 +313,13 @@ function settingsDialog() {
       h('button', {class: 'btn', onClick: async () => { data.settings.aiKey = aiKey.value.trim(); data.settings.aiModel = aiModel.value.trim() || DEFAULT_MODEL; await persist(data.settings.aiKey ? 'AI settings saved' : 'API key removed'); }}, 'Save')),
     h('p', {class: 'note'}, Object.keys(data.settings.formats).length + ' file layouts and ' + Object.keys(data.settings.merchants).length + ' merchants remembered. ',
       h('button', {class: 'linkbtn', onClick: async (ev) => { data.settings.formats = {}; data.settings.merchants = {}; await persist('Saved layouts and merchants cleared'); ev.target.parentElement.firstChild.textContent = '0 file layouts and 0 merchants remembered. '; }}, 'Forget them')),
-    h('h3', {}, 'Default USD to CAD rate'),
-    h('p', {class: 'muted'}, 'Used for new USD salary entries, and for Delta months with no CAD-priced charge to read a rate from.'),
+    h('h3', {}, 'USD to CAD rate'),
+    h('p', {class: 'muted'}, data.settings.fxManual ? 'You set this rate yourself, so it isn’t updated automatically.'
+      : data.settings.fxDate ? 'Filled in automatically with the Bank of Canada’s official rate for ' + fmt.dayY(P(data.settings.fxDate)) + '. Checked once a day.' : 'Filled in automatically with the Bank of Canada’s official daily rate.',
+      ' It’s used for new USD salary entries and pasted USD transactions. Saved entries keep the rate they were made with.'),
     h('div', {class: 'form'}, h('label', {class: 'field'}, h('span', {}, 'Rate'), fx),
-      h('button', {class: 'btn', onClick: async () => { const v = Number(fx.value); if (v > 0) { data.settings.fx = v; await persist('Rate saved'); } }}, 'Save rate')),
+      h('button', {class: 'btn', onClick: async () => { const v = Number(fx.value); if (v > 0) { data.settings.fx = v; data.settings.fxManual = true; await persist('Rate saved. It won’t update automatically now.'); renderAll(); } }}, 'Use this rate'),
+      h('button', {class: 'btn', onClick: async () => { await autoFx(true); fx.value = data.settings.fx; d.close(); }}, 'Get today’s Bank of Canada rate')),
     h('h3', {}, 'Uploads'),
     data.uploads.length ? h('div', {class: 'tablewrap scroll short'}, h('table', {class: 'table'},
       h('thead', {}, h('tr', {}, h('th', {}, 'When'), h('th', {}, 'File'), h('th', {}, 'Type'), h('th', {class: 'num'}, 'Rows'), h('th', {}, 'Dates'))),
@@ -322,7 +341,7 @@ function renderShell() {
   app.replaceChildren(
     h('header', {class: 'top'},
       h('div', {class: 'brand'}, h('strong', {}, 'Finance dashboard'), h('span', {class: 'muted', id: 'range'})),
-      h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id}, t); })),
+      h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing', 'mortgages:Mortgages'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id}, t); })),
       h('div', {class: 'actions'},
         h('button', {class: 'btn primary', onClick: () => uploadDialog()}, 'Add transactions'), menu,
         h('button', {class: 'btn', onClick: () => lock()}, 'Lock'))),
@@ -370,6 +389,7 @@ function renderAll() {
     cardsSection(rows, base, wins, k, months),
     banksSection(),
     housingSection(),
+    mortgagesSection(),
     h('details', {class: 'foot'}, h('summary', {}, 'How these numbers are worked out'),
       h('p', {}, 'Card payments are left out, so card figures count only charges and refunds, with refunds netted against their category. Run rates take each card’s net spend over its own date range and add them up. Delta SkyMiles is billed in USD and turned into CAD at each month’s rate, read from charges that statement also priced in CAD.'),
       h('p', {}, 'A one-off is any charge or refund of $500 or more. A month with no salary entered assumes the latest payment whose description includes “salary”. Housing amounts come from your RBC chequing using the rules in js/rules.js.')));
@@ -441,7 +461,7 @@ function budgetSection(bud) {
     h('label', {class: 'field'}, h('span', {}, 'For month'), h('input', {name: 'month', type: 'month', required: true, value: new Date().toLocaleDateString('en-CA').slice(0, 7)})),
     h('label', {class: 'field'}, h('span', {}, 'Amount'), h('input', {name: 'amount', type: 'number', step: '0.01', min: '0', required: true})),
     h('label', {class: 'field'}, h('span', {}, 'Currency'), h('select', {name: 'currency'}, h('option', {value: 'USD'}, 'USD'), h('option', {value: 'CAD'}, 'CAD'))),
-    h('label', {class: 'field'}, h('span', {}, 'USD to CAD rate'), h('input', {name: 'fx', type: 'number', step: '0.0001', min: '0', value: data.settings.fx})),
+    h('label', {class: 'field'}, h('span', {}, 'USD to CAD rate' + (data.settings.fxDate && !data.settings.fxManual ? ' (BoC ' + fmt.day(P(data.settings.fxDate)) + ')' : '')), h('input', {name: 'fx', type: 'number', step: '0.0001', min: '0', value: data.settings.fx})),
     h('button', {class: 'btn primary', type: 'submit'}, 'Add expected payment'));
   charts.push(() => grouped($('#budget-chart'), bud, [['incoming', 'Income (received or expected)', COLORS[0]], ['cards', 'Card spending', COLORS[1]]],
     {ariaLabel: 'Income against card spending by month', picked: focus?.month, onPick: (r) => setF({budgetMonth: r.month})}));
@@ -556,6 +576,128 @@ function housingSection() {
       {t: 'Net so far', num: true, f: (r) => fmt.usd(r.net)}, {t: 'Net, typical month', num: true, f: (r) => fmt.usd2(r.mNet)}], props),
     pickList('', 'prop', propRows, [{t: 'Date', f: (r) => dateCell(r.date)}, {t: 'Type', f: (r) => r.bucket}, {t: 'Amount', num: true, f: (r) => fmt.usd2(r.amount)}], 'Click a property in the table above to list its transactions here.'),
     h('h3', {}, 'By month'), chart('hmonthly'));
+}
+
+
+// ---- mortgages --------------------------------------------------------------
+const whatIf = {};
+const PROPS = ['Logan house', 'Condo'];
+function mortgageDialog(m) {
+  const isNew = !m;
+  const v = m ? {...m} : {name: '', property: '', compound: 'monthly'};
+  const err = h('p', {class: 'err'});
+  const fields = {};
+  const fld = (key, label, attrs = {}) => { fields[key] = h('input', {value: v[key] ?? '', ...attrs}); return h('label', {class: 'field'}, h('span', {}, label), fields[key]); };
+  const sel = (key, label, opts) => { fields[key] = h('select', {}, opts.map(([val, t]) => h('option', {value: val, selected: (v[key] ?? '') === val}, t))); return h('label', {class: 'field'}, h('span', {}, label), fields[key]); };
+  const paste = h('textarea', {class: 'paste', rows: 5, placeholder: 'Paste your bank’s mortgage page here: select all the text on the page (Cmd+A), copy, and paste.'});
+  const fill = () => {
+    const got = M.parseMortgageText(paste.value);
+    if (!got.balance && !got.payment) { err.textContent = 'Couldn’t find mortgage details in that text.'; return; }
+    err.textContent = '';
+    for (const [k, val] of Object.entries(got)) if (fields[k]) fields[k].value = val;
+    if (got.rateType) fields.compound.value = got.rateType === 'Fixed' ? 'semiannual' : 'monthly';
+    toast('Filled in ' + Object.keys(got).length + ' details. Check them, then save.');
+  };
+  const num = (k) => (fields[k].value === '' ? null : Number(fields[k].value));
+  const d = h('dialog', {class: 'dlg wide'},
+    h('h2', {}, isNew ? 'Add a mortgage' : 'Update ' + (m.name || 'mortgage')),
+    h('p', {class: 'muted'}, 'Paste the mortgage page from your bank to fill everything in, or type the numbers. Only this browser sees them, encrypted with your password.'),
+    paste, h('div', {class: 'dlg-actions', style: 'margin-top:8px'}, h('button', {class: 'btn', onClick: fill}, 'Fill in from pasted text')),
+    h('div', {class: 'form'},
+      fld('name', 'Name', {placeholder: 'e.g. Logan house'}),
+      sel('property', 'Rental it belongs to', [['', 'None'], ...PROPS.map((p) => [p, p])]),
+      fld('balance', 'Outstanding balance', {type: 'number', step: '0.01'}),
+      fld('payment', 'Payment', {type: 'number', step: '0.01'}),
+      fld('nextDate', 'Next payment date', {type: 'date'}),
+      fld('rate', 'Interest rate %', {type: 'number', step: '0.001'}),
+      sel('rateType', 'Rate type', [['Variable', 'Variable'], ['Fixed', 'Fixed']]),
+      sel('compound', 'Interest compounds', [['monthly', 'Monthly (RBC variable)'], ['semiannual', 'Twice a year (most fixed)']]),
+      fld('maturity', 'Term ends (maturity)', {type: 'date'}),
+      fld('original', 'Original balance', {type: 'number', step: '0.01'}),
+      fld('bankRemaining', 'Months left, per bank', {type: 'number'}),
+      fld('value', 'Home value (optional)', {type: 'number', step: '1000'})),
+    err,
+    h('div', {class: 'dlg-actions'},
+      h('button', {class: 'btn', onClick: () => d.close()}, 'Cancel'),
+      h('button', {class: 'btn primary', onClick: async () => {
+        const o = {id: v.id || crypto.randomUUID(), name: fields.name.value.trim() || fields.property.value || 'Mortgage', property: fields.property.value,
+          balance: num('balance'), payment: num('payment'), nextDate: fields.nextDate.value, rate: num('rate'), rateType: fields.rateType.value, compound: fields.compound.value,
+          maturity: fields.maturity.value, original: num('original'), bankRemaining: num('bankRemaining'), value: num('value'), updated: todayISO()};
+        if (!(o.balance > 0) || !(o.payment > 0) || !(o.rate >= 0) || !o.nextDate) { err.textContent = 'Fill in the balance, payment, rate and next payment date.'; return; }
+        data.mortgages = isNew ? [...data.mortgages, o] : data.mortgages.map((x) => (x.id === o.id ? o : x));
+        await persist(isNew ? 'Mortgage added' : 'Mortgage updated'); d.close(); renderAll();
+      }}, isNew ? 'Add mortgage' : 'Save')));
+  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
+}
+
+function mortgagesSection() {
+  const list = data.mortgages || [], today = todayISO();
+  const addBtn = h('button', {class: 'btn primary', onClick: () => mortgageDialog(null)}, 'Add a mortgage');
+  if (!list.length) return section('mortgages', 'Mortgages',
+    h('p', {class: 'muted'}, 'Add your mortgages to see what’s left to pay, when each is paid off, what you’ll owe at renewal and how much interest is still to come. The quickest way: open the mortgage page on your bank’s website, copy the whole page and paste it in.'), addBtn);
+  const sums = list.map((m) => ({m, s: M.summarize(m, today)}));
+  const props = data.rbc.length ? A.properties(data.rbc) : [];
+  const total = (f) => sums.reduce((a, x) => a + f(x), 0);
+  charts.push(() => lineChart($('#mort-chart'), sums.map(({m, s}, i) => ({name: m.name, color: COLORS[i % COLORS.length],
+    points: [{date: m.nextDate, value: m.balance}, ...s.rows.filter((r, j) => j % 3 === 2 || j === s.rows.length - 1).map((r) => ({date: r.date, value: r.balance}))]})),
+    {marks: sums.filter(({m}) => m.maturity).map(({m}) => ({date: m.maturity, label: m.name + ' renews'})), ariaLabel: 'Mortgage balances over time'}));
+  const card = (label, val, ...small) => h('div', {class: 'card'}, h('div', {class: 'label'}, label), h('div', {class: 'val'}, val), ...small.filter(Boolean).map((x) => h('div', {class: 'small'}, x)));
+  const blocks = sums.map(({m, s}) => {
+    const w = whatIf[m.id] || (whatIf[m.id] = {rate: m.rate, extra: 0});
+    const out = h('p', {class: 'take whatif-out'});
+    const runWhatIf = () => {
+      const alt = M.summarize(m, today, {rate: w.rate, extra: w.extra});
+      out.replaceChildren();
+      if (alt.never) { out.append('At that rate the payment no longer covers the interest, so the balance would grow.'); return; }
+      const dm = alt.monthsLeft - s.monthsLeft, di = alt.totalInterest - s.totalInterest;
+      out.append('Paid off ', h('b', {}, fmt.monY(P(alt.payoff))), ' (', dm === 0 ? 'same time' : M.span(Math.abs(dm)) + (dm < 0 ? ' sooner' : ' later'), '), with ',
+        h('b', {}, fmt.usd(alt.totalInterest)), ' of interest still to pay (', good(h('span', {}, (di <= 0 ? fmt.usd(-di) + ' less' : fmt.usd(di) + ' more')), di <= 0), '). ',
+        alt.maturity ? 'At renewal you’d owe ' + fmt.usd(alt.maturity.balance) + '.' : '');
+    };
+    runWhatIf();
+    const prop = props.find((p) => p.property === m.property);
+    const stale = s.paidSince > 0;
+    const yearly = M.byYear(s.rows);
+    return h('div', {class: 'sub'},
+      h('div', {class: 'headrow'},
+        h('h3', {}, m.name, ' ', h('span', {class: 'tag wait'}, (m.rateType || '') + ' ' + m.rate + '%')),
+        h('div', {class: 'row-actions'},
+          h('span', {class: 'note'}, 'Updated ' + fmt.day(P(m.updated || today))),
+          h('button', {class: 'btn small', onClick: () => mortgageDialog(m)}, 'Update'),
+          h('button', {class: 'btn small', onClick: (ev) => {
+            if (!ev.target.dataset.armed) { ev.target.dataset.armed = '1'; ev.target.textContent = 'Click again to remove'; return; }
+            data.mortgages = data.mortgages.filter((x) => x.id !== m.id); persist('Mortgage removed'); renderAll();
+          }}, 'Remove'))),
+      h('div', {class: 'cards'},
+        card(stale ? 'Balance today (estimated)' : 'Balance owing', fmt.usd(s.nowBalance), stale ? s.paidSince + ' payment' + (s.paidSince > 1 ? 's' : '') + ' since you last updated' : null,
+          m.original ? fmt.usd(m.original - s.nowBalance) + ' paid down of ' + fmt.usd(m.original) + ' (' + fmt.pct((m.original - s.nowBalance) / m.original) + ')' : null),
+        card('Next payment · ' + fmt.day(P(s.next.date)), fmt.usd2(s.next.payment), fmt.usd(s.next.interest) + ' interest, ' + fmt.usd(s.next.principal) + ' to the balance'),
+        card('Paid off', s.never ? 'Never' : fmt.monY(P(s.payoff)), s.never ? 'The payment doesn’t cover the interest' : M.span(s.monthsLeft) + ' of payments left',
+          m.bankRemaining ? 'Bank says ' + M.span(m.bankRemaining) : null),
+        card('Interest still to pay', fmt.usd(s.totalInterest), 'If you keep this rate and payment to the end'),
+        s.maturity && card('At renewal · ' + fmt.monY(P(m.maturity)), fmt.usd(s.maturity.balance), 'Owing when the term ends, after ' + s.maturity.payments + ' more payments',
+          fmt.usd(s.maturity.interest) + ' interest and ' + fmt.usd(s.maturity.principal) + ' principal until then'),
+        m.value ? card('Equity', fmt.usd(m.value - s.nowBalance), fmt.pct((m.value - s.nowBalance) / m.value) + ' of ' + fmt.usd(m.value)) : null),
+      prop && h('p', {class: 'note'}, h('b', {}, m.property + ': '), 'typical rent ' + fmt.usd(prop.mIncome) + ' a month, against ' + fmt.usd(m.payment) + ' mortgage' + (prop.mFees ? ' and ' + fmt.usd(prop.mFees) + ' condo fee' : '') +
+        ', so ' + fmt.usd(Math.abs(prop.mIncome - m.payment - prop.mFees)) + (prop.mIncome - m.payment - prop.mFees >= 0 ? ' left over' : ' short') + ' in cash. ' +
+        'Counting the ' + fmt.usd(s.next.principal) + ' that goes to the balance as savings, it ' + ((prop.mIncome - s.next.interest - prop.mFees) >= 0 ? 'earns ' : 'costs ') + fmt.usd(Math.abs(prop.mIncome - s.next.interest - prop.mFees)) + ' a month before property tax, insurance and repairs.'),
+      h('div', {class: 'whatif'},
+        h('h4', {}, 'What if'),
+        h('div', {class: 'form'},
+          h('label', {class: 'field'}, h('span', {}, 'Rate %'), h('input', {type: 'number', step: '0.05', min: '0', value: w.rate, onInput: (ev) => { const x = Number(ev.target.value); if (x >= 0) { w.rate = x; runWhatIf(); } }})),
+          h('label', {class: 'field'}, h('span', {}, 'Extra each month'), h('input', {type: 'number', step: '50', min: '0', value: w.extra, onInput: (ev) => { w.extra = Math.max(0, Number(ev.target.value) || 0); runWhatIf(); }}))),
+        out),
+      h('details', {}, h('summary', {class: 'linkbtn'}, 'Year by year'),
+        table([{t: 'Year', f: (r) => r.year}, {t: 'Payments', num: true, f: (r) => r.payments}, {t: 'Interest', num: true, f: (r) => fmt.usd(r.interest)},
+          {t: 'Principal', num: true, f: (r) => fmt.usd(r.principal)}, {t: 'Balance at year end', num: true, f: (r) => fmt.usd(r.balance)}], yearly, {scroll: true})));
+  });
+  return section('mortgages', 'Mortgages',
+    h('p', {class: 'take'}, 'You owe ', h('b', {}, fmt.usd(total((x) => x.s.nowBalance))), ' across ' + list.length + (list.length === 1 ? ' mortgage' : ' mortgages') + ', paying ',
+      h('b', {}, fmt.usd(total((x) => x.m.payment))), ' a month. Of the next payments, ', h('b', {}, fmt.usd(total((x) => x.s.next.interest))), ' is interest and ',
+      h('b', {}, fmt.usd(total((x) => x.s.next.principal))), ' pays down the balance.'),
+    h('div', {class: 'headrow'}, h('h3', {}, 'Balance owing over time'), addBtn), chart('mort-chart'),
+    h('p', {class: 'note'}, 'Projected with today’s rate and payment. A variable rate will change this. Renewal is when the term ends and the rate is reset.'),
+    ...blocks);
 }
 
 let resizeTimer;

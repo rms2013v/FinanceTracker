@@ -1,12 +1,12 @@
-import * as vault from './vault.js?v=202611261350';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261350';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261350';
-import * as A from './analysis.js?v=202611261350';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261350';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261350';
-import * as M from './mortgage.js?v=202611261350';
-import {latestUsdCad} from './fx.js?v=202611261350';
-import * as PK from './passkey.js?v=202611261350';
+import * as vault from './vault.js?v=202611261353';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261353';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261353';
+import * as A from './analysis.js?v=202611261353';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261353';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261353';
+import * as M from './mortgage.js?v=202611261353';
+import {latestUsdCad} from './fx.js?v=202611261353';
+import * as PK from './passkey.js?v=202611261353';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -378,11 +378,13 @@ function renderShell() {
     h('div', {class: 'menu-pop'},
       h('button', {onClick: (ev) => { ev.target.closest('details').open = false; downloadBackup(); }}, 'Download backup'),
       h('button', {onClick: (ev) => { ev.target.closest('details').open = false; restoreDialog(false); }}, 'Restore a backup'),
+      h('button', {onClick: (ev) => { ev.target.closest('details').open = false; setFolded(SECTIONS, true); }}, 'Collapse all sections'),
+      h('button', {onClick: (ev) => { ev.target.closest('details').open = false; setFolded(SECTIONS, false); }}, 'Expand all sections'),
       h('button', {onClick: (ev) => { ev.target.closest('details').open = false; settingsDialog(); }}, 'Settings')));
   app.replaceChildren(
     h('header', {class: 'top'},
       h('div', {class: 'brand'}, h('img', {src: 'logo-small.jpg', alt: '', class: 'brand-logo', width: 32, height: 32}), h('strong', {}, 'Finance dashboard'), h('span', {class: 'muted', id: 'range'})),
-      h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing', 'mortgages:Mortgages'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id}, t); })),
+      h('nav', {class: 'nav'}, ['overview:Overview', 'budget:Budget', 'cards:Cards', 'banks:Bank accounts', 'housing:Housing', 'mortgages:Mortgages'].map((s) => { const [id, t] = s.split(':'); return h('a', {href: '#' + id, onClick: () => { if (isFolded(id)) setFolded([id], false); }}, t); })),
       h('div', {class: 'actions'},
         h('button', {class: 'btn primary', onClick: () => uploadDialog()}, 'Add transactions'), menu,
         h('button', {class: 'btn', onClick: () => lock()}, 'Lock'))),
@@ -392,7 +394,22 @@ function renderShell() {
   renderAll();
 }
 
-function section(id, title, ...kids) { return h('section', {class: 'sec', id}, h('h2', {class: 'sec-title'}, title), ...kids); }
+const SECTIONS = ['overview', 'budget', 'cards', 'banks', 'housing', 'mortgages'];
+const isFolded = (id) => !!data.settings.collapsed?.[id];
+async function setFolded(ids, folded) {
+  const c = {...(data.settings.collapsed || {})};
+  for (const id of ids) { if (folded) c[id] = true; else delete c[id]; }
+  data.settings.collapsed = c; renderAll(); await persist();
+}
+// A section whose title folds it away. The parts stay on the page but hidden, so charts redraw when it opens.
+function foldable(id, heading, ...kids) {
+  const folded = isFolded(id);
+  return h('section', {class: 'sec' + (folded ? ' folded' : ''), id},
+    h('div', {class: 'sec-head'}, h('button', {class: 'fold', 'aria-expanded': String(!folded), 'aria-controls': id + '-body', title: folded ? 'Show this section' : 'Hide this section',
+      onClick: () => setFolded([id], !folded)}, h('span', {class: 'chev', 'aria-hidden': 'true'}), heading)),
+    h('div', {class: 'sec-body', id: id + '-body', hidden: folded}, ...kids));
+}
+function section(id, title, ...kids) { return foldable(id, h('h2', {class: 'sec-title'}, title), ...kids); }
 const chart = (id, cls = '') => h('div', {class: 'chart ' + cls, id});
 function table(cols, rows, opts = {}) {
   return h('div', {class: 'tablewrap' + (opts.scroll ? ' scroll' : '')}, h('table', {class: 'table'},
@@ -448,8 +465,7 @@ function overview(k, per, bud) {
   const pick = f.category ? h('span', {class: 'pickchip'}, 'Category: ' + f.category, h('button', {class: 'btn small', onClick: () => setF({category: ''})}, 'Clear')) : null;
   const mrow = per && bud.find((r) => r.month === per.month && r.hasIncome);
   const card = (label, val, ...small) => h('div', {class: 'card'}, h('div', {class: 'label'}, label), h('div', {class: 'val'}, val), ...small.filter(Boolean).map((s) => h('div', {class: 'small'}, s)));
-  return h('section', {class: 'sec', id: 'overview'},
-    h('h1', {class: 'page-title'}, 'Spending, 2026 to date'),
+  return foldable('overview', h('h1', {class: 'page-title'}, 'Spending, 2026 to date'),
     k && h('p', {class: 'take'}, 'Net card spend is ', h('b', {}, fmt.usd(k.net)), ' so far, a run rate of about ', h('b', {}, fmt.usd(k.perWeek)), ' a week or ', h('b', {}, fmt.usd(k.perMonth)),
       ' a month. The last 4 weeks came in ', h('b', {}, fmt.pct(Math.abs(k.chg28))), k.chg28 >= 0 ? ' above' : ' below', ' that pace.'),
     h('div', {class: 'controls'}, cardsSel, groupSel, big, pick, h('button', {class: 'btn small', onClick: () => setF({account: '', group: '', big: false, category: ''})}, 'Reset filters')),

@@ -1,5 +1,5 @@
 // Reads bank and card exports in the browser and turns them into rows for the dashboard.
-import {GROUP_OF, AMEX_RULES, DELTA_RULES, WS_BUSINESS, HOUSING, DEFAULT_FX} from './rules.js?v=202611261350';
+import {GROUP_OF, AMEX_RULES, DELTA_RULES, WS_BUSINESS, HOUSING, DEFAULT_FX} from './rules.js?v=202611261353';
 
 export const ACCOUNTS = {
   ws: 'Wealthsimple',

@@ -1,12 +1,12 @@
-import * as vault from './vault.js?v=202611261408';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261408';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261408';
-import * as A from './analysis.js?v=202611261408';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard, heroTrend, donut} from './charts.js?v=202611261408';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261408';
-import * as M from './mortgage.js?v=202611261408';
-import {latestUsdCad} from './fx.js?v=202611261408';
-import * as PK from './passkey.js?v=202611261408';
+import * as vault from './vault.js?v=202611261420';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261420';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261420';
+import * as A from './analysis.js?v=202611261420';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard} from './charts.js?v=202611261420';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261420';
+import * as M from './mortgage.js?v=202611261420';
+import {latestUsdCad} from './fx.js?v=202611261420';
+import * as PK from './passkey.js?v=202611261420';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -480,7 +480,7 @@ function renderAll() {
   $('#range').textContent = k ? ' · cards ' + fmt.day(P(k.start)) + ' to ' + fmt.dayY(P(k.end)) : '';
 
   main.replaceChildren(
-    overview(k, per, bud, rows, wins),
+    overview(k, per, bud),
     budgetSection(bud),
     cardsSection(rows, base, wins, k, months),
     banksSection(),
@@ -493,7 +493,7 @@ function renderAll() {
   window.scrollTo(0, scrollY);
 }
 
-function overview(k, per, bud, rows, wins) {
+function overview(k, per, bud) {
   const cardsSel = h('select', {'aria-label': 'Card', onChange: (ev) => setF({account: ev.target.value})},
     h('option', {value: ''}, 'All cards'), cardAccounts(data.cards).map((a) => h('option', {value: a, selected: f.account === a}, a)));
   const groups = [...new Set(data.cards.map((r) => r.group))].sort();
@@ -501,70 +501,24 @@ function overview(k, per, bud, rows, wins) {
     h('option', {value: ''}, 'All category groups'), groups.map((g) => h('option', {value: g, selected: f.group === g}, g)));
   const big = h('label', {class: 'check'}, h('input', {type: 'checkbox', checked: f.big, onChange: (ev) => setF({big: ev.target.checked})}), ' Leave out one-offs of $500 or more');
   const pick = f.category ? h('span', {class: 'pickchip'}, 'Category: ' + f.category, h('button', {class: 'btn small', onClick: () => setF({category: ''})}, 'Clear')) : null;
-  const filtered = !!(f.account || f.group || f.big || f.category);
-  const controls = h('div', {class: 'controls'}, cardsSel, groupSel, big, pick, filtered && h('button', {class: 'btn small', onClick: () => setF({account: '', group: '', big: false, category: ''})}, 'Reset filters'));
-  const head = h('h1', {class: 'page-title'}, 'Spending, 2026 to date');
-  if (!k) return foldable('overview', head, controls, h('p', {class: 'muted'}, 'No card data matches these filters.'));
-
-  const year = k.end.slice(0, 4), monthLabel = monName(per.month).split(' ')[0];
-  const cooling = k.chg28 < 0;
-  const mrow = !filtered && bud.find((r) => r.month === per.month && r.hasIncome);
-  const daysLeft = Math.max(0, Math.round((Date.UTC(+year, 11, 31) - P(k.end).getTime()) / 864e5));
-  const yearEnd = k.net + k.perDay * daysLeft;
-  const monthCats = A.categories(rows.filter((r) => r.date.slice(0, 7) === per.month)).filter((c) => c.spend > 0);
-  const DCOL = ['var(--d1)', 'var(--d2)', 'var(--d3)', 'var(--d4)', 'var(--d5)'];
-  const top = monthCats.slice(0, 4).map((c, i) => ({name: c.category, value: c.spend, color: DCOL[i]}));
-  const rest = monthCats.slice(4).reduce((a, c) => a + c.spend, 0);
-  if (rest > 0) top.push({name: 'Everything else', value: rest, color: DCOL[4]});
-  const monthTotal = top.reduce((a, c) => a + c.value, 0);
-  const gap = k.perMonth - per.monthProj;
-  const seeMonth = () => { setF({month: per.month}); requestAnimationFrame(() => $('#month-detail')?.scrollIntoView({behavior: 'smooth', block: 'start'})); };
-
-  charts.push(() => heroTrend($('#hero-trend'), A.weekly(rows, wins)));
-  charts.push(() => donut($('#where-donut'), top, {center: fmt.k(monthTotal), sub: 'charged', onClick: (d) => d.name !== 'Everything else' && setF({category: f.category === d.name ? '' : d.name})}));
-
-  const arrow = (down) => h('span', {class: 'trend-ico', 'aria-hidden': 'true'}, down ? '↘' : '↗');
-  const pace = (cls, label, val, note) => h('div', {class: 'sp-card ' + cls}, h('div', {class: 'sp-label'}, label), h('div', {class: 'sp-num'}, val), h('div', {class: 'sp-note'}, note));
-  const spentPct = mrow ? Math.min(1, mrow.cards / Math.max(1, mrow.incoming)) : Math.min(1, per.monthSpend / Math.max(1, k.perMonth));
-
-  return foldable('overview', head, controls,
-    h('div', {class: 'sp-grid'},
-      h('div', {class: 'sp-hero'},
-        h('div', {class: 'sp-hero-text'},
-          h('div', {class: 'sp-eyebrow'}, (filtered ? 'Spent in ' + year + ', filtered' : 'Total spent in ' + year)),
-          h('div', {class: 'sp-hero-num'}, fmt.usd(k.net)),
-          h('p', {class: 'sp-hero-msg'}, h('b', {}, cooling ? 'Nice work. ' : 'Heads up. '),
-            cooling ? 'Your spending has cooled down over the last four weeks.' : 'Your spending has picked up over the last four weeks.'),
-          h('div', {class: 'sp-pill'}, arrow(cooling), fmt.pct(Math.abs(k.chg28)) + (cooling ? ' below' : ' above') + ' your usual pace')),
-        h('div', {class: 'sp-hero-chart', id: 'hero-trend'})),
-      h('div', {class: 'sp-month'},
-        h('div', {class: 'sp-blob a', 'aria-hidden': 'true'}), h('div', {class: 'sp-blob b', 'aria-hidden': 'true'}),
-        h('div', {class: 'sp-eyebrow'}, monthLabel + (per.monthDays < 28 ? ' · ' + per.monthDays + ' days in' : '')),
-        h('div', {class: 'sp-month-num'}, fmt.usd(mrow ? mrow.cards : per.monthSpend)),
-        h('p', {class: 'sp-month-msg'}, mrow
-          ? (mrow.left < 0 ? ['You’ve spent ', h('b', {}, fmt.usd(-mrow.left) + ' more'), ' than this month’s income.'] : ['You have ', h('b', {}, fmt.usd(mrow.left) + ' left'), ' of this month’s income.'])
-          : ['On pace for ', h('b', {}, fmt.usd(per.monthProj)), ', ' + fmt.pct(Math.abs(per.monthVs)) + (per.monthVs <= 0 ? ' under' : ' over') + ' a typical month.']),
-        h('div', {class: 'sp-bar', role: 'img', 'aria-label': fmt.pct(spentPct) + (mrow ? ' of income spent' : ' of a typical month spent')}, h('span', {style: 'width:' + (spentPct * 100).toFixed(1) + '%'})),
-        h('div', {class: 'sp-bar-scale'}, h('span', {}, '$0'), h('span', {}, mrow ? fmt.usd(mrow.incoming) + ' income' : fmt.usd(k.perMonth) + ' typical')),
-        h('div', {class: 'sp-week'}, 'This week: ', h('b', {}, fmt.usd(per.weekSpend)), ', ' + fmt.pct(Math.abs(per.weekVs)) + (per.weekVs <= 0 ? ' under' : ' over') + ' a typical ' + (per.weekDays === 7 ? 'week' : per.weekDays + ' days'))),
-      pace('mint', 'Weekly pace', fmt.usd(k.perWeek), (cooling ? '↓ Trending lower' : '↑ Trending higher') + ' · last 4 weeks ' + fmt.usd(k.last28)),
-      pace('peach', 'Monthly pace', fmt.usd(k.perMonth), 'Based on your daily average'),
-      pace('lav', 'Year-end estimate', fmt.usd(yearEnd), daysLeft ? 'If the next ' + daysLeft + ' days follow your usual pace' : 'Full year'),
-      h('div', {class: 'sp-where'},
-        h('div', {class: 'sp-where-head'}, h('div', {}, h('h3', {}, 'Where it went'), h('p', {class: 'sp-sub'}, 'Your top categories in ' + monthLabel)),
-          h('button', {class: 'sp-link', onClick: seeMonth}, 'See details')),
-        top.length ? h('div', {class: 'sp-where-body'}, h('div', {class: 'sp-donut', id: 'where-donut'}),
-          h('ul', {class: 'sp-cats'}, top.map((c) => h('li', {},
-            h('button', {class: 'sp-cat' + (f.category === c.name ? ' on' : ''), disabled: c.name === 'Everything else', onClick: () => setF({category: f.category === c.name ? '' : c.name})},
-              h('span', {class: 'dot', style: 'background:' + c.color}), h('span', {class: 'nm'}, c.name), h('span', {class: 'pc'}, fmt.pct(c.value / monthTotal)))))))
-          : h('p', {class: 'sp-sub'}, 'No spending this month yet.')),
-      h('div', {class: 'sp-tip'},
-        h('div', {class: 'sp-tip-ico', 'aria-hidden': 'true'}, '💡'),
-        h('h3', {}, gap > 0 ? 'A small shift adds up' : 'Worth a look'),
-        h('p', {}, gap > 0
-          ? ['If every month went like this one, you’d spend ', h('b', {}, fmt.usd(gap * 12)), ' less over a year than your average so far, which includes big one-offs.']
-          : ['This month is on track for ', h('b', {}, fmt.usd(-gap) + ' more'), ' than a typical month. ', monthCats[0] ? 'Your biggest category is ' + monthCats[0].category + ' at ' + fmt.usd(monthCats[0].spend) + '.' : '']),
-        h('button', {class: 'sp-btn', onClick: seeMonth}, 'See this month’s spending'))));
+  const mrow = per && bud.find((r) => r.month === per.month && r.hasIncome);
+  const card = (label, val, ...small) => h('div', {class: 'card'}, h('div', {class: 'label'}, label), h('div', {class: 'val'}, val), ...small.filter(Boolean).map((s) => h('div', {class: 'small'}, s)));
+  return foldable('overview', h('h1', {class: 'page-title'}, 'Spending, 2026 to date'),
+    k && h('p', {class: 'take'}, 'Net card spend is ', h('b', {}, fmt.usd(k.net)), ' so far, a run rate of about ', h('b', {}, fmt.usd(k.perWeek)), ' a week or ', h('b', {}, fmt.usd(k.perMonth)),
+      ' a month. The last 4 weeks came in ', h('b', {}, fmt.pct(Math.abs(k.chg28))), k.chg28 >= 0 ? ' above' : ' below', ' that pace.'),
+    h('div', {class: 'controls'}, cardsSel, groupSel, big, pick, h('button', {class: 'btn small', onClick: () => setF({account: '', group: '', big: false, category: ''})}, 'Reset filters')),
+    k ? h('div', {class: 'cards'},
+      card('This month · ' + fmt.day(P(per.monthStart)) + '–' + P(per.end).getUTCDate(), fmt.usd(per.monthSpend),
+        h('span', {}, 'On pace for ' + fmt.usd(per.monthProj) + ', ', good(h('span', {}, fmt.spct(per.monthVs)), per.monthVs <= 0), ' vs. a typical month'),
+        mrow && good(h('span', {}, (mrow.left >= 0 ? fmt.usd(mrow.left) + ' left of' : fmt.usd(-mrow.left) + ' over') + ' this month’s income'), mrow.left >= 0)),
+      card('This week · ' + fmt.day(P(per.weekStart)) + (per.weekDays > 1 ? '–' + fmt.day(P(per.end)) : ''), fmt.usd(per.weekSpend),
+        h('span', {}, good(h('span', {}, fmt.spct(per.weekVs)), per.weekVs <= 0), ' vs. a typical ' + (per.weekDays === 7 ? 'week' : per.weekDays + ' days'))),
+      card('Net spend', fmt.usd(k.net), fmt.usd(k.gross) + ' charged, ' + fmt.usd(k.refunds) + ' back as refunds'),
+      card('Run rate per week', fmt.usd(k.perWeek), 'Each card’s spend over its own date range'),
+      card('Run rate per month', fmt.usd(k.perMonth), 'Daily rate × 365 ÷ 12'),
+      card('Last 4 weeks', fmt.usd(k.last28), h('span', {}, good(h('span', {}, fmt.spct(k.chg28)), k.chg28 <= 0), ' vs. a typical 4 weeks')),
+      card('Full-year pace', fmt.usd(k.projYear), 'Daily rate × 365'))
+      : h('p', {class: 'muted'}, 'No card data matches these filters.'));
 }
 
 function budgetSection(bud) {

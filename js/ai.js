@@ -1,8 +1,8 @@
 // Reads files the dashboard doesn't know, with Claude.
 // Claude only sees the first rows of a file (to work out its columns) and the merchant names (to sort them into categories).
 // Every row is then read here in the browser with the layout Claude described.
-import {isoDate, num} from './parse.js?v=202611261045';
-import {GROUPS, GROUP_OF} from './rules.js?v=202611261045';
+import {isoDate, num} from './parse.js?v=202611261125';
+import {GROUPS, GROUP_OF} from './rules.js?v=202611261125';
 
 const API = 'https://api.anthropic.com/v1/messages';
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';

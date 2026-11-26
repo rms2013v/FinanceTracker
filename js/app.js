@@ -1,9 +1,9 @@
-import * as vault from './vault.js?v=202611261045';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261045';
-import {readLayout, applyLayout, categorize, signature, merchantKey, DEFAULT_MODEL} from './ai.js?v=202611261045';
-import * as A from './analysis.js?v=202611261045';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261045';
-import {DEFAULT_FX} from './rules.js?v=202611261045';
+import * as vault from './vault.js?v=202611261125';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261125';
+import {readLayout, applyLayout, categorize, signature, merchantKey, DEFAULT_MODEL} from './ai.js?v=202611261125';
+import * as A from './analysis.js?v=202611261125';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261125';
+import {DEFAULT_FX} from './rules.js?v=202611261125';
 
 const XLSX = window.XLSX;
 const IDLE_MINUTES = 15;
@@ -161,7 +161,7 @@ function uploadDialog(initial) {
   const confirm = h('button', {class: 'btn primary', disabled: true}, 'Add to dashboard');
   const input = h('input', {type: 'file', multiple: true, accept: '.csv,.xlsx,.xls,.txt', id: 'upl-input', class: 'sr-only'});
   const drop = h('label', {class: 'drop', for: 'upl-input'}, h('strong', {}, 'Choose files'), ' or drop them here', h('br'),
-    h('span', {class: 'muted'}, 'Wealthsimple, Amex and RBC exports are read directly. Any other card activity file (CSV or Excel) can be read with AI.'));
+    h('span', {class: 'muted'}, 'Wealthsimple, Amex and RBC exports are read directly. For any other card file, choose it here, then click “Read with AI” on its row below.'));
   const ready = (it) => it.batch && !it.batch.error && it.batch.rows.length;
   const meta = (b, extra) => h('div', {class: 'upl-meta'}, b.label, ' · ', b.rows.length + ' transactions · ', b.from ? fmt.day(P(b.from)) + ' to ' + fmt.dayY(P(b.to)) : 'no dates',
     ' · ', b.mode === 'replace' ? 'replaces this card’s data for those dates' : 'adds only new transactions', extra || '');
@@ -184,10 +184,12 @@ function uploadDialog(initial) {
       let body;
       if (it.busy) body = h('div', {class: 'upl-meta'}, 'Reading with Claude…');
       else if (it.ai && ready(it)) body = aiView(it);
+      else if (it.aiError && !b.error) body = h('div', {}, h('div', {class: 'err'}, it.aiError), meta(b));
       else if (b.error) body = h('div', {}, h('div', {class: 'err'}, it.aiError || b.error),
         it.sheets && h('button', {class: 'btn small primary', onClick: () => readWithAI(it, draw)}, it.aiError ? 'Try again with AI' : 'Read with AI'),
         it.sheets && !data.settings.aiKey && h('span', {class: 'note'}, ' Needs your Anthropic API key in Menu → Settings.'));
       else body = h('div', {}, meta(b),
+        h('button', {class: 'linkbtn small-link', onClick: () => { try { it.sheets = it.sheets || readTable(XLSX, it.file.name, it.raw); readWithAI(it, draw); } catch (e) { toast(e.message, true); } }}, 'Read with AI instead'),
         it.amex && h('label', {class: 'upl-card'}, 'Card: ', h('select', {onChange: (ev) => { it.card = ev.target.value; it.batch = parseFile(XLSX, it.file.name, it.raw, {card: it.card, fx: data.settings.fx}); draw(); }},
           h('option', {value: 'aeroplan', selected: it.card === 'aeroplan'}, 'Amex Aeroplan Reserve (CAD)'),
           h('option', {value: 'delta', selected: it.card === 'delta'}, 'Delta SkyMiles (USD)'))));

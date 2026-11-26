@@ -182,3 +182,4 @@ input.rate { width: 90px; text-align: right; padding: 3px 6px; }
 .upl-fields { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
 .upl-fields .field input { width: 220px; }
 .upl-ai .tablewrap { margin-top: 6px; }
+.linkbtn.small-link { display: block; font-size: 13px; margin-top: 4px; }

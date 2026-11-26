@@ -1,11 +1,12 @@
-import * as vault from './vault.js?v=202611261344';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261344';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261344';
-import * as A from './analysis.js?v=202611261344';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261344';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261344';
-import * as M from './mortgage.js?v=202611261344';
-import {latestUsdCad} from './fx.js?v=202611261344';
+import * as vault from './vault.js?v=202611261348';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261348';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261348';
+import * as A from './analysis.js?v=202611261348';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261348';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261348';
+import * as M from './mortgage.js?v=202611261348';
+import {latestUsdCad} from './fx.js?v=202611261348';
+import * as PK from './passkey.js?v=202611261348';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -56,6 +57,16 @@ async function showLogin() {
   const pw = h('input', {type: 'password', id: 'pw', autocomplete: 'current-password', required: true, 'aria-label': 'Password'});
   const file = has ? null : h('input', {type: 'file', id: 'backup', accept: '.json,application/json', 'aria-label': 'Backup file'});
   const btn = h('button', {type: 'submit', class: 'btn primary wide'}, 'Sign in');
+  const pk = has && PK.supported() && PK.saved();
+  const pkBtn = pk && h('button', {type: 'button', class: 'btn primary wide', onClick: async () => {
+    err.textContent = ''; pkBtn.disabled = true; pkBtn.textContent = 'Waiting for Touch ID…';
+    try { start(await vault.unlock(await PK.password())); }
+    catch (e) {
+      err.textContent = e.message === 'wrong-password' ? 'Your password has changed since the passkey was set up. Sign in with your password, then set the passkey up again in Settings.' : PK.explain(e);
+      pkBtn.disabled = false; pkBtn.textContent = 'Sign in with passkey';
+    }
+  }}, 'Sign in with passkey');
+  if (pk) btn.className = 'btn wide';
   const fileBox = file && h('div', {hidden: true},
     h('p', {class: 'note'}, 'This device has no data yet. Choose your backup file (on your computer: Menu → Download backup), then press Sign in again. You only need it once per device.'),
     h('label', {class: 'field'}, h('span', {}, 'Backup file'), file));
@@ -75,12 +86,13 @@ async function showLogin() {
   }},
     h('h1', {class: 'login-title'}, 'Finance dashboard'),
     h('p', {class: 'muted'}, 'Sign in to open your data.'),
+    pkBtn, pk && h('p', {class: 'or'}, 'or use your password'),
     h('label', {class: 'field'}, h('span', {}, 'Username'), user),
     h('label', {class: 'field'}, h('span', {}, 'Password'), pw),
     fileBox,
     err, btn);
   app.replaceChildren(h('main', {class: 'login'}, form));
-  user.focus();
+  (pkBtn || user).focus();
 }
 
 function restoreDialog(fromLogin) {
@@ -284,6 +296,32 @@ async function downloadBackup() {
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   toast('Backup downloaded. It opens only with your password.');
 }
+function passkeyBlock() {
+  const box = h('div', {});
+  const draw = () => {
+    const pk = PK.saved();
+    if (!PK.supported()) { box.replaceChildren(h('p', {class: 'muted'}, 'This browser doesn’t support passkeys.')); return; }
+    if (pk) {
+      box.replaceChildren(h('p', {class: 'muted'}, 'Touch ID sign-in is on for this browser (set up ' + fmt.dayY(new Date(pk.at)) + ').'),
+        h('button', {class: 'btn', onClick: () => { PK.forget(); toast('Passkey sign-in turned off for this browser'); draw(); }}, 'Turn off passkey sign-in'));
+      return;
+    }
+    const pw = h('input', {type: 'password', autocomplete: 'current-password', 'aria-label': 'Your password'});
+    const msg = h('p', {class: 'err'});
+    box.replaceChildren(
+      h('p', {class: 'muted'}, 'Sign in with Touch ID instead of typing your password. It’s saved in your iCloud Keychain and works in this browser. Enter your password once to set it up.'),
+      h('div', {class: 'form'}, h('label', {class: 'field'}, h('span', {}, 'Your password'), pw),
+        h('button', {class: 'btn primary', onClick: async () => {
+          msg.textContent = '';
+          try { await vault.unlock(pw.value); } catch { msg.textContent = 'That password is wrong.'; return; }
+          try { await PK.setup(pw.value, USERNAME); pw.value = ''; toast('Passkey set up. Next time, sign in with Touch ID.'); draw(); }
+          catch (e) { msg.textContent = PK.explain(e); }
+        }}, 'Set up passkey')), msg);
+  };
+  draw();
+  return box;
+}
+
 function settingsDialog() {
   const oldPw = h('input', {type: 'password', autocomplete: 'current-password'}), newPw = h('input', {type: 'password', autocomplete: 'new-password'}), newPw2 = h('input', {type: 'password', autocomplete: 'new-password'});
   const msg = h('p', {class: 'err'});
@@ -292,6 +330,8 @@ function settingsDialog() {
   const aiModel = h('input', {type: 'text', value: data.settings.aiModel || DEFAULT_MODEL});
   const d = h('dialog', {class: 'dlg wide'},
     h('h2', {}, 'Settings'),
+    h('h3', {}, 'Passkey'),
+    passkeyBlock(),
     h('h3', {}, 'Change password'),
     h('div', {class: 'form'},
       h('label', {class: 'field'}, h('span', {}, 'Current password'), oldPw),
@@ -301,7 +341,7 @@ function settingsDialog() {
         msg.textContent = '';
         if (newPw.value.length < 10) { msg.textContent = 'Use at least 10 characters.'; return; }
         if (newPw.value !== newPw2.value) { msg.textContent = 'The new passwords don’t match.'; return; }
-        try { await persist(); const s = await vault.changePassword(oldPw.value, newPw.value); session = {key: s.key, salt: s.salt, iter: s.iter}; toast('Password changed. Download a new backup: old backups still use the old password.'); d.close(); }
+        try { await persist(); const s = await vault.changePassword(oldPw.value, newPw.value); session = {key: s.key, salt: s.salt, iter: s.iter}; PK.forget(); toast('Password changed. Set up your passkey again, and download a new backup: old backups still use the old password.'); d.close(); }
         catch (e) { msg.textContent = e.message === 'wrong-password' ? 'The current password is wrong.' : e.message; }
       }}, 'Change password')),
     msg,
@@ -326,7 +366,7 @@ function settingsDialog() {
       h('tbody', {}, data.uploads.map((u) => h('tr', {}, h('td', {}, new Date(u.at).toLocaleString()), h('td', {}, u.name), h('td', {}, u.label), h('td', {class: 'num'}, u.rows), h('td', {}, u.from ? u.from + ' to ' + u.to : '')))))) : h('p', {class: 'muted'}, 'No uploads yet.'),
     h('h3', {}, 'Delete everything'),
     h('p', {class: 'muted'}, 'Removes all data from this browser. Download a backup first if you may want it back.'),
-    h('button', {class: 'btn danger', onClick: async () => { if (!window.confirm('Delete all data in this browser?')) return; await vault.wipe(); d.close(); lock('All data deleted'); }}, 'Delete all data'),
+    h('button', {class: 'btn danger', onClick: async () => { if (!window.confirm('Delete all data in this browser?')) return; await vault.wipe(); PK.forget(); d.close(); lock('All data deleted'); }}, 'Delete all data'),
     h('div', {class: 'dlg-actions'}, h('button', {class: 'btn primary', onClick: () => d.close()}, 'Done')));
   document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
 }

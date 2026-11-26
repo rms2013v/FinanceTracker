@@ -1,12 +1,12 @@
-import * as vault from './vault.js?v=202611261353';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261353';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261353';
-import * as A from './analysis.js?v=202611261353';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart} from './charts.js?v=202611261353';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261353';
-import * as M from './mortgage.js?v=202611261353';
-import {latestUsdCad} from './fx.js?v=202611261353';
-import * as PK from './passkey.js?v=202611261353';
+import * as vault from './vault.js?v=202611261401';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261401';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261401';
+import * as A from './analysis.js?v=202611261401';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped, lineChart, miniCard} from './charts.js?v=202611261401';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261401';
+import * as M from './mortgage.js?v=202611261401';
+import {latestUsdCad} from './fx.js?v=202611261401';
+import * as PK from './passkey.js?v=202611261401';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -297,6 +297,42 @@ async function downloadBackup() {
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   toast('Backup downloaded. It opens only with your password.');
 }
+// Small pictures of your cards for the chart legend. Kept only in your encrypted data, never on GitHub.
+function shrinkImage(file, w = 120, hgt = 76) {
+  return new Promise((ok, bad) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = w * 2; c.height = hgt * 2;
+      const r = Math.max(c.width / img.width, c.height / img.height), dw = img.width * r, dh = img.height * r;
+      c.getContext('2d').drawImage(img, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
+      URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); bad(new Error('That file isn’t a picture this browser can open.')); };
+    img.src = url;
+  });
+}
+function cardArtBlock() {
+  const box = h('div', {});
+  const draw = () => {
+    const art = data.settings.cardArt || {}, all = cardAccounts(data.cards);
+    box.replaceChildren(
+      h('p', {class: 'muted'}, 'Add a picture of each card for the chart legend, for example the card image from your bank’s website. Pictures stay in your encrypted data in this browser. Don’t use a photo that shows your card number.'),
+      h('div', {class: 'art-list'}, all.map((name) => {
+        const input = h('input', {type: 'file', accept: 'image/*', class: 'sr-only', id: 'art-' + name.replace(/\W/g, '')});
+        input.addEventListener('change', async () => {
+          const f = input.files[0]; if (!f) return;
+          try { data.settings.cardArt = {...art, [name]: await shrinkImage(f)}; await persist('Picture added for ' + name); draw(); renderAll(); }
+          catch (e) { toast(e.message, true); }
+        });
+        return h('div', {class: 'art-row'}, miniCard(COLORS[all.indexOf(name) % COLORS.length], art[name]), h('span', {class: 'art-name'}, name), input,
+          h('label', {class: 'btn small', for: input.id}, art[name] ? 'Change' : 'Add picture'),
+          art[name] && h('button', {class: 'linkbtn', onClick: async () => { const a = {...art}; delete a[name]; data.settings.cardArt = a; await persist('Picture removed'); draw(); renderAll(); }}, 'Remove'));
+      })));
+  };
+  draw();
+  return box;
+}
+
 function passkeyBlock() {
   const box = h('div', {});
   const draw = () => {
@@ -333,6 +369,8 @@ function settingsDialog() {
     h('h2', {}, 'Settings'),
     h('h3', {}, 'Passkey'),
     passkeyBlock(),
+    h('h3', {}, 'Card pictures'),
+    cardArtBlock(),
     h('h3', {}, 'Change password'),
     h('div', {class: 'form'},
       h('label', {class: 'field'}, h('span', {}, 'Current password'), oldPw),
@@ -549,7 +587,7 @@ function cardsSection(rows, base, wins, k, months) {
     tip: [d.category, 'Net spend: ' + fmt.usd(d.spend) + ' (' + fmt.pct(d.share) + ')', d.n + ' transactions', 'Click to ' + (f.category === d.category ? 'clear' : 'filter')]}));
   const toggleCat = (d) => setF({category: f.category === d.name ? '' : d.name});
   const catCell = (r) => pickBtn(r.category, f.category === r.category, () => setF({category: f.category === r.category ? '' : r.category}));
-  charts.push(() => stackedMonths($('#monthly-chart'), months, keys, colorOf, {picked, onPick: (r) => setF({month: r.month}), ariaLabel: 'Net card spend per month by card'}));
+  charts.push(() => stackedMonths($('#monthly-chart'), months, keys, colorOf, {picked, onPick: (r) => setF({month: r.month}), ariaLabel: 'Net card spend per month by card', cards: data.settings.cardArt || {}}));
   charts.push(() => weeklyChart($('#weekly-chart'), A.weekly(rows, wins), k));
   charts.push(() => hbars($('#cats-chart'), catItems(cats), {onClick: toggleCat, ariaLabel: 'Net spend by category'}));
   if (md) charts.push(() => hbars($('#mcats-chart'), catItems(md.cats), {onClick: toggleCat, bh: 16, ariaLabel: 'This month by category'}));

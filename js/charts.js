@@ -26,14 +26,25 @@ export function tip(host) {
   };
 }
 
-export function legend(el, items) {
-  const lg = document.createElement('div'); lg.className = 'legend';
+export function legend(el, items, {cards} = {}) {
+  const lg = document.createElement('div'); lg.className = 'legend' + (cards ? ' card-legend' : '');
   for (const [name, color, dashed] of items) {
-    const s = document.createElement('span'), sw = document.createElement('span'); sw.className = 'sw';
-    if (dashed) { sw.style.border = '1px dashed ' + color; sw.style.background = 'transparent'; } else sw.style.background = color;
-    s.append(sw, document.createTextNode(name)); lg.appendChild(s);
+    const s = document.createElement('span');
+    s.append(cards ? miniCard(color, cards[name]) : swatch(color, dashed), document.createTextNode(name)); lg.appendChild(s);
   }
   el.appendChild(lg);
+}
+function swatch(color, dashed) {
+  const sw = document.createElement('span'); sw.className = 'sw';
+  if (dashed) { sw.style.border = '1px dashed ' + color; sw.style.background = 'transparent'; } else sw.style.background = color;
+  return sw;
+}
+// A small card: the picture you added for it, or a plain card in the chart colour. The coloured edge keeps it matched to its bars.
+export function miniCard(color, picture) {
+  const c = document.createElement('span'); c.className = 'minicard'; c.style.setProperty('--card', color);
+  if (picture) { const img = document.createElement('img'); img.src = picture; img.alt = ''; c.appendChild(img); c.classList.add('has-pic'); }
+  else { const chip = document.createElement('span'); chip.className = 'chip'; c.appendChild(chip); }
+  return c;
 }
 
 function yAxis(svg, y, W) {
@@ -62,9 +73,9 @@ const hits = (svg, rows, x, key, step, mt, H, mb, t, lines, onPick, label) => {
 };
 
 // Stacked bars by month, one colour per key.
-export function stackedMonths(el, rows, keys, colorOf, {picked, onPick, ariaLabel} = {}) {
+export function stackedMonths(el, rows, keys, colorOf, {picked, onPick, ariaLabel, cards} = {}) {
   el.replaceChildren();
-  legend(el, keys.map((k) => [k, colorOf(k)]));
+  legend(el, keys.map((k) => [k, colorOf(k)]), {cards: cards || {}});
   const W = Math.max(el.clientWidth, 280), H = 250, mt = 20, mb = 24;
   const svg = d3.select(el).append('svg').attr('width', W).attr('height', H).attr('role', 'img').attr('aria-label', ariaLabel || '');
   const stack = d3.stack().keys(keys).offset(d3.stackOffsetDiverging)(rows);

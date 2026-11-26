@@ -11,7 +11,7 @@ A private spending dashboard that runs entirely in your browser. You upload your
 
 ## First use
 
-1. Open the site, enter the username `oleh` and set your password (at least 10 characters). On each new browser or device you set it again, or restore a backup there.
+1. Open the site and sign in as `oleh`. The site has no sign-up: on a browser or phone with no data yet, it asks for your backup file once, after your password.
 2. Click **Upload files** and add your exports:
    Wealthsimple credit card CSV, Wealthsimple chequing CSV, Amex Aeroplan `activity.xlsx`, Amex Delta SkyMiles `activity.xlsx` (USD, converted to CAD), RBC `download-transactions.csv`, or a small CSV of extra card transactions with Date, Description, Amount columns.
 3. For Amex files, check the **Card** selector says the right card before adding.

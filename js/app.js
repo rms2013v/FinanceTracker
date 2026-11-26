@@ -1,9 +1,9 @@
-import * as vault from './vault.js?v=202611261127';
-import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261127';
-import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261127';
-import * as A from './analysis.js?v=202611261127';
-import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261127';
-import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261127';
+import * as vault from './vault.js?v=202611261258';
+import {parseFile, merge, readTable, cardAccounts, aiCardBatch, ACCOUNTS} from './parse.js?v=202611261258';
+import {readLayout, applyLayout, categorize, signature, merchantKey, extractFromText, DEFAULT_MODEL} from './ai.js?v=202611261258';
+import * as A from './analysis.js?v=202611261258';
+import {COLORS, fmt, P, monName, stackedMonths, weeklyChart, hbars, grouped} from './charts.js?v=202611261258';
+import {DEFAULT_FX, GROUPS} from './rules.js?v=202611261258';
 
 const XLSX = window.XLSX;
 const CATS = Object.values(GROUPS).flat();
@@ -51,50 +51,34 @@ async function showLogin() {
   const has = await vault.exists();
   const err = h('p', {class: 'err', role: 'alert'});
   const user = h('input', {type: 'text', id: 'user', autocomplete: 'username', required: true, autocapitalize: 'none', spellcheck: 'false', 'aria-label': 'Username'});
-  const pw = h('input', {type: 'password', id: 'pw', autocomplete: has ? 'current-password' : 'new-password', required: true, minlength: has ? null : 10, 'aria-label': 'Password'});
-  const pw2 = has ? null : h('input', {type: 'password', id: 'pw2', autocomplete: 'new-password', required: true, 'aria-label': 'Repeat password'});
-  const btn = h('button', {type: 'submit', class: 'btn primary wide'}, has ? 'Unlock' : 'Create password');
+  const pw = h('input', {type: 'password', id: 'pw', autocomplete: 'current-password', required: true, 'aria-label': 'Password'});
+  const file = has ? null : h('input', {type: 'file', id: 'backup', accept: '.json,application/json', 'aria-label': 'Backup file'});
+  const btn = h('button', {type: 'submit', class: 'btn primary wide'}, 'Sign in');
+  const fileBox = file && h('div', {hidden: true},
+    h('p', {class: 'note'}, 'This device has no data yet. Choose your backup file (on your computer: Menu → Download backup), then press Sign in again. You only need it once per device.'),
+    h('label', {class: 'field'}, h('span', {}, 'Backup file'), file));
   const form = h('form', {class: 'login-card', onSubmit: async (ev) => {
     ev.preventDefault(); err.textContent = '';
-    if (user.value.trim().toLowerCase() !== USERNAME) { err.textContent = has ? 'That username and password don’t match.' : 'Use the username “' + USERNAME + '”.'; pw.value = ''; return; }
-    if (!has) {
-      if (pw.value.length < 10) { err.textContent = 'Use at least 10 characters.'; return; }
-      if (pw.value !== pw2.value) { err.textContent = 'The two passwords don’t match.'; return; }
-    }
-    btn.disabled = true; btn.textContent = has ? 'Unlocking…' : 'Setting up…';
+    if (user.value.trim().toLowerCase() !== USERNAME) { err.textContent = 'That username and password don’t match.'; pw.value = ''; return; }
+    if (!has && !file.files[0]) { fileBox.hidden = false; err.textContent = ''; return; }
+    btn.disabled = true; btn.textContent = 'Signing in…';
     try {
-      const s = has ? await vault.unlock(pw.value) : {...(await vault.create(pw.value, emptyData())), data: emptyData()};
-      pw.value = ''; if (pw2) pw2.value = '';
+      const s = has ? await vault.unlock(pw.value) : await vault.restore(await file.files[0].text(), pw.value);
+      pw.value = '';
       start(s);
     } catch (e) {
-      err.textContent = e.message === 'wrong-password' ? 'That username and password don’t match.' : 'Something went wrong: ' + e.message;
-      btn.disabled = false; btn.textContent = has ? 'Unlock' : 'Create password'; pw.select();
+      err.textContent = e.message === 'wrong-password' ? 'That username and password don’t match.' : e.message === 'bad-file' ? 'That file isn’t a backup from this dashboard.' : 'Something went wrong: ' + e.message;
+      btn.disabled = false; btn.textContent = 'Sign in'; pw.select();
     }
   }},
     h('h1', {class: 'login-title'}, 'Finance dashboard'),
-    h('p', {class: 'muted'}, has ? 'Sign in to open your data.' : 'Sign in as ' + USERNAME + ' and set your password. It encrypts everything stored in this browser.'),
+    h('p', {class: 'muted'}, 'Sign in to open your data.'),
     h('label', {class: 'field'}, h('span', {}, 'Username'), user),
     h('label', {class: 'field'}, h('span', {}, 'Password'), pw),
-    pw2 && h('label', {class: 'field'}, h('span', {}, 'Repeat password'), pw2),
-    !has && h('p', {class: 'note'}, 'There is no way to recover a lost password. Keep it somewhere safe, and download a backup from the menu once your data is in.'),
-    err, btn,
-    has && h('div', {class: 'login-links'},
-      h('button', {type: 'button', class: 'linkbtn', onClick: () => restoreDialog(true)}, 'Restore from a backup file'),
-      h('button', {type: 'button', class: 'linkbtn danger', onClick: forgetDialog}, 'Forgot password? Start over')),
-    !has && h('div', {class: 'login-links'}, h('button', {type: 'button', class: 'linkbtn', onClick: () => restoreDialog(true)}, 'I have a backup file')),
-  );
+    fileBox,
+    err, btn);
   app.replaceChildren(h('main', {class: 'login'}, form));
   user.focus();
-}
-
-function forgetDialog() {
-  const d = h('dialog', {class: 'dlg'},
-    h('h2', {}, 'Start over?'),
-    h('p', {}, 'This deletes the encrypted data saved in this browser. Without your password it can’t be opened, so it can’t be recovered either. You can then set a new password and upload your files again, or restore a backup if you remember its password.'),
-    h('div', {class: 'dlg-actions'},
-      h('button', {class: 'btn', onClick: () => d.close()}, 'Cancel'),
-      h('button', {class: 'btn danger', onClick: async () => { await vault.wipe(); d.close(); showLogin(); }}, 'Delete and start over')));
-  document.body.append(d); d.addEventListener('close', () => d.remove()); d.showModal();
 }
 
 function restoreDialog(fromLogin) {
